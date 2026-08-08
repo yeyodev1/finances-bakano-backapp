@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/index.ts",
+      "use": "@vercel/node",
+      "config": { "maxDuration": 60 }
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "src/index.ts"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/run/daily",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/run/monthly",
+      "schedule": "5 6 1 * *"
+    }
+  ]
+}
