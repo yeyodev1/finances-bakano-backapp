@@ -77,6 +77,13 @@ async function seedSuperadmin() {
     return { created: false, email };
   }
 
+  if (!env.seedAdmin.password) {
+    console.warn(
+      "[seed] SEED_ADMIN_PASSWORD no está definida; no se crea el superadmin inicial."
+    );
+    return { created: false, email };
+  }
+
   await User.create({
     name: env.seedAdmin.name,
     email,

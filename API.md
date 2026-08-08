@@ -1,6 +1,6 @@
 # Bakano Finanzas — API
 
-Base URL local: `http://localhost:8200/api`
+Base URL local: `http://localhost:8101/api`
 
 Todas las rutas requieren `Authorization: Bearer <token>` excepto `POST /auth/login`.
 
@@ -14,34 +14,37 @@ Listados paginados: `{ "items": [], "total": 0, "page": 1, "limit": 50, "pages":
 
 ## Auth
 
+> Las llamadas de abajo usan variables de entorno para no dejar credenciales escritas:
+> `export ADMIN_EMAIL=...` y `export ADMIN_PASSWORD=...` antes de ejecutarlas.
+
 ### Login (empieza por aquí)
 
 ```bash
-curl -X POST http://localhost:8200/api/auth/login \
+curl -X POST http://localhost:8101/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"dreyes@bakano.ec","password":"***REMOVED***"}'
+  -d '{"email":"'"$ADMIN_EMAIL"'","password":"'"$ADMIN_PASSWORD"'"}'
 ```
 
 Guarda el token para el resto de llamadas:
 
 ```bash
-export TOKEN=$(curl -s -X POST http://localhost:8200/api/auth/login \
+export TOKEN=$(curl -s -X POST http://localhost:8101/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"dreyes@bakano.ec","password":"***REMOVED***"}' | jq -r .token)
+  -d '{"email":"'"$ADMIN_EMAIL"'","password":"'"$ADMIN_PASSWORD"'"}' | jq -r .token)
 ```
 
 ### Perfil autenticado
 
 ```bash
-curl http://localhost:8200/api/auth/me -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/auth/me -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Cambiar contraseña
 
 ```bash
-curl -X POST http://localhost:8200/api/auth/change-password \
+curl -X POST http://localhost:8101/api/auth/change-password \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"currentPassword":"***REMOVED***","newPassword":"nuevaClave2026"}'
+  -d '{"currentPassword":"'"$ADMIN_PASSWORD"'","newPassword":"'"$NUEVA_CLAVE"'"}'
 ```
 
 ---
@@ -50,32 +53,32 @@ curl -X POST http://localhost:8200/api/auth/change-password \
 
 ```bash
 # Mi perfil (cualquier rol autenticado)
-curl http://localhost:8200/api/users/me -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/users/me -H "Authorization: Bearer $TOKEN"
 
 # Listar con filtros
-curl "http://localhost:8200/api/users?q=diego&role=admin&isActive=true&page=1&limit=20" \
+curl "http://localhost:8101/api/users?q=diego&role=admin&isActive=true&page=1&limit=20" \
   -H "Authorization: Bearer $TOKEN"
 
 # Detalle
-curl http://localhost:8200/api/users/665f0a1b2c3d4e5f60718293 -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/users/665f0a1b2c3d4e5f60718293 -H "Authorization: Bearer $TOKEN"
 
 # Crear
-curl -X POST http://localhost:8200/api/users \
+curl -X POST http://localhost:8101/api/users \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"Ana Torres","email":"ana@bakano.ec","password":"claveSegura1","role":"admin","receivesNotifications":true}'
 
 # Actualizar (si mandas password se re-hashea)
-curl -X PUT http://localhost:8200/api/users/665f0a1b2c3d4e5f60718293 \
+curl -X PUT http://localhost:8101/api/users/665f0a1b2c3d4e5f60718293 \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"Ana T.","role":"viewer"}'
 
 # Activar / desactivar
-curl -X PATCH http://localhost:8200/api/users/665f0a1b2c3d4e5f60718293/active \
+curl -X PATCH http://localhost:8101/api/users/665f0a1b2c3d4e5f60718293/active \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"isActive":false}'
 
 # Eliminar
-curl -X DELETE http://localhost:8200/api/users/665f0a1b2c3d4e5f60718293 \
+curl -X DELETE http://localhost:8101/api/users/665f0a1b2c3d4e5f60718293 \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -87,17 +90,17 @@ No se puede eliminar/desactivar al último superadministrador activo ni a tu pro
 
 ```bash
 # Listar (q, paymentMethod, billingType, isActive, hasWorkspace, tag, page, limit, sort)
-curl "http://localhost:8200/api/clients?q=anderson&isActive=true&billingType=monthly&sort=-createdAt&page=1&limit=50" \
+curl "http://localhost:8101/api/clients?q=anderson&isActive=true&billingType=monthly&sort=-createdAt&page=1&limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
 # Estadísticas globales
-curl http://localhost:8200/api/clients/stats -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/clients/stats -H "Authorization: Bearer $TOKEN"
 
 # Detalle
-curl http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293 -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293 -H "Authorization: Bearer $TOKEN"
 
 # Crear (cobro único)
-curl -X POST http://localhost:8200/api/clients \
+curl -X POST http://localhost:8101/api/clients \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{
     "name":"Restaurante La Casa",
@@ -113,7 +116,7 @@ curl -X POST http://localhost:8200/api/clients \
   }'
 
 # Crear (cobro dividido en dos pagos del mismo mes)
-curl -X POST http://localhost:8200/api/clients \
+curl -X POST http://localhost:8101/api/clients \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{
     "name":"Anderson Boscán",
@@ -124,34 +127,34 @@ curl -X POST http://localhost:8200/api/clients \
   }'
 
 # Actualizar
-curl -X PUT http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293 \
+curl -X PUT http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293 \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"amount":480,"collectionDay":10}'
 
 # Eliminar — YA NO BORRA: responde 400 y te pide usar la baja
-curl -X DELETE http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293 \
+curl -X DELETE http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293 \
   -H "Authorization: Bearer $TOKEN"
 
 # Activar / desactivar
-curl -X PATCH http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/active \
+curl -X PATCH http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/active \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"isActive":false,"reason":"Contrato finalizado"}'
 
 # Vincular workspace de métricas
-curl -X POST http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/link-workspace \
+curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/link-workspace \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"workspaceId":"6710aa11bb22cc33dd44ee55","workspaceName":"La Casa"}'
 
 # Desvincular workspace
-curl -X DELETE http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/link-workspace \
+curl -X DELETE http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/link-workspace \
   -H "Authorization: Bearer $TOKEN"
 
 # Sugerencias de workspace (top 5 por similitud de nombre; [] si métricas no está configurado)
-curl http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/workspace-suggestions \
+curl http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/workspace-suggestions \
   -H "Authorization: Bearer $TOKEN"
 
 # Backfill histórico: genera facturas desde fromDate y marca pagadas hasta markPaidUntil
-curl -X POST http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/backfill \
+curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/backfill \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"fromDate":"2025-01-01","markPaidUntil":"2026-06-30"}'
 ```
@@ -163,21 +166,21 @@ solo a ellos o `archived=all` para verlos todos. Cada item trae `lifetimeDays` c
 
 ```bash
 # Listar solo archivados / todos
-curl "http://localhost:8200/api/clients?archived=true" -H "Authorization: Bearer $TOKEN"
-curl "http://localhost:8200/api/clients?archived=all" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/clients?archived=true" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/clients?archived=all" -H "Authorization: Bearer $TOKEN"
 
 # Atajo: bajas con motivo, duración e ingreso total, ordenadas por fecha de baja desc
-curl "http://localhost:8200/api/clients/archived?limit=100" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/clients/archived?limit=100" -H "Authorization: Bearer $TOKEN"
 
 # Dar de baja SIN adjuntos (JSON). "reason" es obligatorio.
 # Valores: impago | cancelacion_cliente | cierre_negocio | competencia | precio |
 #          insatisfaccion_resultados | pausa_temporal | fin_contrato | decision_bakano | otro
-curl -X POST http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/archive \
+curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/archive \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"reason":"impago","notes":"Tres meses sin pagar, no responde WhatsApp"}'
 
 # Dar de baja CON respaldos (multipart, campo "attachments", hasta 10, imágenes o PDF de 10 MB)
-curl -X POST http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/archive \
+curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/archive \
   -H "Authorization: Bearer $TOKEN" \
   -F "reason=cancelacion_cliente" \
   -F "notes=Capturas del chat donde pide cancelar" \
@@ -185,17 +188,17 @@ curl -X POST http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/archive 
   -F "attachments=@/ruta/correo-cancelacion.pdf"
 
 # Subir respaldos extra a la última entrada del historial
-curl -X POST http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/attachments \
+curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/attachments \
   -H "Authorization: Bearer $TOKEN" \
   -F "attachments=@/ruta/acta-cierre.pdf"
 
 # Reactivar (limpia la baja y deja el historial intacto)
-curl -X POST http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/reactivate \
+curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/reactivate \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"notes":"Volvió con plan reducido"}'
 
 # Borrado real — solo superadmin y solo si el cliente NUNCA tuvo pagos
-curl -X DELETE http://localhost:8200/api/clients/665f0a1b2c3d4e5f60718293/purge \
+curl -X DELETE http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/purge \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -238,49 +241,49 @@ Notas:
 
 ```bash
 # Listar (period, status, clientId, q, overdueOnly, page, limit)
-curl "http://localhost:8200/api/invoices?period=2026-08&status=overdue&page=1&limit=50" \
+curl "http://localhost:8101/api/invoices?period=2026-08&status=overdue&page=1&limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8200/api/invoices?overdueOnly=true" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/invoices?overdueOnly=true" -H "Authorization: Bearer $TOKEN"
 
 # Resumen del período
-curl "http://localhost:8200/api/invoices/summary?period=2026-08" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/invoices/summary?period=2026-08" -H "Authorization: Bearer $TOKEN"
 
 # Generar facturas del período (idempotente; force reescribe solo las no pagadas)
-curl -X POST http://localhost:8200/api/invoices/generate \
+curl -X POST http://localhost:8101/api/invoices/generate \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"period":"2026-08"}'
 
-curl -X POST http://localhost:8200/api/invoices/generate \
+curl -X POST http://localhost:8101/api/invoices/generate \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"period":"2026-08","clientIds":["665f0a1b2c3d4e5f60718293"],"force":true}'
 
 # Recalcular estados (marca overdue lo vencido e impago)
-curl -X POST http://localhost:8200/api/invoices/recalc -H "Authorization: Bearer $TOKEN"
+curl -X POST http://localhost:8101/api/invoices/recalc -H "Authorization: Bearer $TOKEN"
 
 # Detalle
-curl http://localhost:8200/api/invoices/6712ab34cd56ef7890123456 -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/invoices/6712ab34cd56ef7890123456 -H "Authorization: Bearer $TOKEN"
 
 # Editar
-curl -X PUT http://localhost:8200/api/invoices/6712ab34cd56ef7890123456 \
+curl -X PUT http://localhost:8101/api/invoices/6712ab34cd56ef7890123456 \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"amount":390,"dueDate":"2026-08-28","notes":"Descuento acordado"}'
 
 # Condonar
-curl -X PATCH http://localhost:8200/api/invoices/6712ab34cd56ef7890123456/waive \
+curl -X PATCH http://localhost:8101/api/invoices/6712ab34cd56ef7890123456/waive \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"reason":"Cortesía por incidencia de servicio"}'
 
 # Anular
-curl -X PATCH http://localhost:8200/api/invoices/6712ab34cd56ef7890123456/cancel \
+curl -X PATCH http://localhost:8101/api/invoices/6712ab34cd56ef7890123456/cancel \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"reason":"Factura duplicada"}'
 
 # Solo facturas con al menos una prórroga registrada
-curl "http://localhost:8200/api/invoices?deferredOnly=true" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/invoices?deferredOnly=true" -H "Authorization: Bearer $TOKEN"
 
 # Solo cobros anticipados
-curl "http://localhost:8200/api/invoices?advanceOnly=true" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/invoices?advanceOnly=true" -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Prórrogas (acuerdos de pago)
@@ -291,12 +294,12 @@ auto-desactivación se miden siempre contra el `dueDate` vigente (el prorrogado)
 
 ```bash
 # Registrar el acuerdo: mueve el vencimiento al 15 y reabre los avisos con la fecha nueva
-curl -X PATCH http://localhost:8200/api/invoices/6712ab34cd56ef7890123456/defer \
+curl -X PATCH http://localhost:8101/api/invoices/6712ab34cd56ef7890123456/defer \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"newDueDate":"2026-08-15","reason":"Acuerdo telefónico","notes":"Confirmado por WhatsApp"}'
 
 # Deshacer la última prórroga (restaura el vencimiento anterior y recalcula el estado)
-curl -X DELETE http://localhost:8200/api/invoices/6712ab34cd56ef7890123456/defer \
+curl -X DELETE http://localhost:8101/api/invoices/6712ab34cd56ef7890123456/defer \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -317,17 +320,17 @@ del período futuro antes de que corra el generador mensual y se le registra el 
 
 ```bash
 # Crear el cobro anticipado (idempotente por clientId + period + splitIndex)
-curl -X POST http://localhost:8200/api/invoices/advance \
+curl -X POST http://localhost:8101/api/invoices/advance \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"clientId":"665f0a1b2c3d4e5f60718293","period":"2026-09"}'
 
 # Con monto, vencimiento, split y notas explícitos
-curl -X POST http://localhost:8200/api/invoices/advance \
+curl -X POST http://localhost:8101/api/invoices/advance \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"clientId":"665f0a1b2c3d4e5f60718293","period":"2026-09","amount":420,"dueDate":"2026-09-01","splitIndex":0,"notes":"Pagado por adelantado en agosto"}'
 
 # Registrar el pago sobre esa factura (el correo indica que es un cobro anticipado del período)
-curl -X POST http://localhost:8200/api/payments \
+curl -X POST http://localhost:8101/api/payments \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"invoiceId":"6712ab34cd56ef7890123456","amount":420,"method":"transferencia"}'
 ```
@@ -375,11 +378,11 @@ Notas:
 
 ```bash
 # Listar (clientId, period, method, from, to, page, limit)
-curl "http://localhost:8200/api/payments?period=2026-08&method=transferencia&from=2026-08-01&to=2026-08-31" \
+curl "http://localhost:8101/api/payments?period=2026-08&method=transferencia&from=2026-08-01&to=2026-08-31" \
   -H "Authorization: Bearer $TOKEN"
 
 # Registrar pago sin comprobante
-curl -X POST http://localhost:8200/api/payments \
+curl -X POST http://localhost:8101/api/payments \
   -H "Authorization: Bearer $TOKEN" \
   -F "invoiceId=6712ab34cd56ef7890123456" \
   -F "amount=420" \
@@ -388,7 +391,7 @@ curl -X POST http://localhost:8200/api/payments \
   -F "reference=TRX-99881"
 
 # Registrar pago con comprobante (imagen o PDF, máx 10 MB)
-curl -X POST http://localhost:8200/api/payments \
+curl -X POST http://localhost:8101/api/payments \
   -H "Authorization: Bearer $TOKEN" \
   -F "invoiceId=6712ab34cd56ef7890123456" \
   -F "amount=210" \
@@ -397,10 +400,10 @@ curl -X POST http://localhost:8200/api/payments \
   -F "receipt=@/ruta/comprobante.pdf"
 
 # Detalle
-curl http://localhost:8200/api/payments/6713cd56ef7890123456abcd -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/payments/6713cd56ef7890123456abcd -H "Authorization: Bearer $TOKEN"
 
 # Eliminar (revierte paidAmount/estado de la factura y borra el comprobante) — solo superadmin
-curl -X DELETE http://localhost:8200/api/payments/6713cd56ef7890123456abcd \
+curl -X DELETE http://localhost:8101/api/payments/6713cd56ef7890123456abcd \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -416,39 +419,39 @@ Todas las rutas de `/dashboard` requieren token (cualquier rol). El parámetro `
 
 ```bash
 # Resumen del período: facturado, cobrado, pendiente, vencido, % cobranza, conteos de clientes/facturas
-curl "http://localhost:8200/api/dashboard/summary?period=2026-08" \
+curl "http://localhost:8101/api/dashboard/summary?period=2026-08" \
   -H "Authorization: Bearer $TOKEN"
 
 # Serie de ingresos por período (por defecto 12 meses, máximo 36)
-curl "http://localhost:8200/api/dashboard/revenue-series?months=12" \
+curl "http://localhost:8101/api/dashboard/revenue-series?months=12" \
   -H "Authorization: Bearer $TOKEN"
 
 # Conteo y monto por estado de factura
-curl "http://localhost:8200/api/dashboard/status-breakdown?period=2026-08" \
+curl "http://localhost:8101/api/dashboard/status-breakdown?period=2026-08" \
   -H "Authorization: Bearer $TOKEN"
 
 # Monto cobrado agrupado por método de pago
-curl "http://localhost:8200/api/dashboard/method-breakdown?period=2026-08" \
+curl "http://localhost:8101/api/dashboard/method-breakdown?period=2026-08" \
   -H "Authorization: Bearer $TOKEN"
 
 # Top de clientes por monto facturado (limit por defecto 10)
-curl "http://localhost:8200/api/dashboard/top-clients?period=2026-08&limit=10" \
+curl "http://localhost:8101/api/dashboard/top-clients?period=2026-08&limit=10" \
   -H "Authorization: Bearer $TOKEN"
 
 # Antigüedad de la mora: 0-7 / 8-15 / 16-30 / 30+ con conteo y monto
-curl "http://localhost:8200/api/dashboard/aging" \
+curl "http://localhost:8101/api/dashboard/aging" \
   -H "Authorization: Bearer $TOKEN"
 
 # Cobros próximos: facturas pending/partial con dueDate dentro de N días (default 15)
-curl "http://localhost:8200/api/dashboard/upcoming?days=15" \
+curl "http://localhost:8101/api/dashboard/upcoming?days=15" \
   -H "Authorization: Bearer $TOKEN"
 
 # Listado de facturas vencidas con datos del cliente y días de mora (limit default 50)
-curl "http://localhost:8200/api/dashboard/overdue?limit=50" \
+curl "http://localhost:8101/api/dashboard/overdue?limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
 # Reporte de bajas: por qué se van los clientes y cuánto ingreso mensual se perdió
-curl http://localhost:8200/api/dashboard/churn -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8101/api/dashboard/churn -H "Authorization: Bearer $TOKEN"
 ```
 
 Respuesta de `/churn`:
@@ -520,11 +523,11 @@ Lectura: cualquier rol autenticado. Escritura (`PUT`, `POST`): `superadmin` o `a
 
 ```bash
 # Preferencias de notificaciones (se crea con defaults si no existe)
-curl http://localhost:8200/api/settings/notifications \
+curl http://localhost:8101/api/settings/notifications \
   -H "Authorization: Bearer $TOKEN"
 
 # Actualizar preferencias: destinatarios, toggles, días de gracia, etc.
-curl -X PUT http://localhost:8200/api/settings/notifications \
+curl -X PUT http://localhost:8101/api/settings/notifications \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -546,16 +549,16 @@ curl -X PUT http://localhost:8200/api/settings/notifications \
   }'
 
 # Enviar un correo de prueba (si se omite "to" se usan los destinatarios configurados)
-curl -X POST http://localhost:8200/api/settings/notifications/test \
+curl -X POST http://localhost:8101/api/settings/notifications/test \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"to":"dreyes@bakano.ec"}'
 
 # Configuración de marca de la app
-curl http://localhost:8200/api/settings/app \
+curl http://localhost:8101/api/settings/app \
   -H "Authorization: Bearer $TOKEN"
 
-curl -X PUT http://localhost:8200/api/settings/app \
+curl -X PUT http://localhost:8101/api/settings/app \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -566,7 +569,7 @@ curl -X PUT http://localhost:8200/api/settings/app \
   }'
 
 # Subir el logo (multipart, campo "logo", máximo 5 MB, solo imágenes)
-curl -X POST http://localhost:8200/api/settings/app/logo \
+curl -X POST http://localhost:8101/api/settings/app/logo \
   -H "Authorization: Bearer $TOKEN" \
   -F "logo=@./logo-bakano.png"
 ```
@@ -579,19 +582,19 @@ Requiere `METRICS_API_URL` y `FINANCE_API_KEY`. La escritura es `superadmin` o `
 
 ```bash
 # Estado de la conexión con el backend de métricas
-curl http://localhost:8200/api/workspaces/health \
+curl http://localhost:8101/api/workspaces/health \
   -H "Authorization: Bearer $TOKEN"
 
 # Lista de workspaces cruzada con el cliente de finanzas asociado (Client.workspaceId)
-curl http://localhost:8200/api/workspaces \
+curl http://localhost:8101/api/workspaces \
   -H "Authorization: Bearer $TOKEN"
 
 # Detalle de un workspace + su cliente
-curl http://localhost:8200/api/workspaces/6713aa11bb22cc33dd44ee55 \
+curl http://localhost:8101/api/workspaces/6713aa11bb22cc33dd44ee55 \
   -H "Authorization: Bearer $TOKEN"
 
 # Activar / desactivar manualmente (escribe AuditLog y actualiza Client.workspaceIsActive)
-curl -X PATCH http://localhost:8200/api/workspaces/6713aa11bb22cc33dd44ee55/active \
+curl -X PATCH http://localhost:8101/api/workspaces/6713aa11bb22cc33dd44ee55/active \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"isActive": false, "reason": "Mora de dos períodos"}'
@@ -608,19 +611,19 @@ export CRON_SECRET=tu_secreto
 
 # Job diario: recalcula estados, envía recordatorios, alertas de mora,
 # avisos previos y ejecuta las auto-desactivaciones
-curl -X POST http://localhost:8200/api/cron/run/daily \
+curl -X POST http://localhost:8101/api/cron/run/daily \
   -H "x-cron-secret: $CRON_SECRET"
 
 # Job mensual: genera las facturas del período actual y envía el resumen del período anterior
-curl -X POST http://localhost:8200/api/cron/run/monthly \
+curl -X POST http://localhost:8101/api/cron/run/monthly \
   -H "x-cron-secret: $CRON_SECRET"
 
 # Generar facturas de un período específico
-curl -X POST http://localhost:8200/api/cron/run/generate/2026-08 \
+curl -X POST http://localhost:8101/api/cron/run/generate/2026-08 \
   -H "x-cron-secret: $CRON_SECRET"
 
 # Alternativa con token de superadmin
-curl -X POST http://localhost:8200/api/cron/run/daily \
+curl -X POST http://localhost:8101/api/cron/run/daily \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -702,7 +705,7 @@ modal de vinculación las muestre.
 ```bash
 # Refrescar imagen, nombre y estado de TODOS los clientes vinculados con una sola llamada a
 # métricas (no una por cliente). Solo admin y superadmin.
-curl -X POST http://localhost:8200/api/clients/sync-workspace-images \
+curl -X POST http://localhost:8101/api/clients/sync-workspace-images \
   -H "Authorization: Bearer $TOKEN"
 # → { "updated": 74, "notFound": 3, "total": 77, "configured": true }
 ```
@@ -758,29 +761,29 @@ acompaña a `shouldBeClosed` en todas las respuestas anteriores.
 # Abrir el acceso. "reason" es OBLIGATORIO → 400 "Debes indicar por qué se abre el acceso."
 # "until" es opcional; si se omite o va en null la excepción es indefinida.
 # El cliente debe tener workspaceId vinculado o responde 400.
-curl -X POST http://localhost:8200/api/clients/68b0.../grant-access \
+curl -X POST http://localhost:8101/api/clients/68b0.../grant-access \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason":"Firmó acuerdo de pago para el viernes","until":"2026-08-15"}'
 
 # Excepción indefinida
-curl -X POST http://localhost:8200/api/clients/68b0.../grant-access \
+curl -X POST http://localhost:8101/api/clients/68b0.../grant-access \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"reason":"Cliente estratégico, lo autoriza gerencia"}'
 
 # Revocar la excepción y cerrar el espacio si sigue en mora (comportamiento por defecto)
-curl -X DELETE http://localhost:8200/api/clients/68b0.../grant-access \
+curl -X DELETE http://localhost:8101/api/clients/68b0.../grant-access \
   -H "Authorization: Bearer $TOKEN"
 
 # Revocar SIN cerrar el espacio
-curl -X DELETE http://localhost:8200/api/clients/68b0.../grant-access \
+curl -X DELETE http://localhost:8101/api/clients/68b0.../grant-access \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"closeWorkspace":false}'
 
 # Listado de todos los abiertos por excepción, con deuda, mora y días restantes
-curl http://localhost:8200/api/clients/access-overrides \
+curl http://localhost:8101/api/clients/access-overrides \
   -H "Authorization: Bearer $TOKEN"
 ```
 

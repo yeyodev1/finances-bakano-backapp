@@ -1,0 +1,39 @@
+[
+  {
+    "name": "Cliente Ejemplo",
+    "amount": 420,
+    "issueDay": 10,
+    "collectionDay": 15,
+    "paymentMethod": "transferencia"
+  },
+  {
+    "name": "Cliente con Pagos Divididos",
+    "amount": 500,
+    "issueDay": 1,
+    "collectionDay": 20,
+    "paymentMethod": "stripe",
+    "notes": "Dos pagos de 250",
+    "splits": [
+      { "label": "Pago 1", "amount": 250, "day": 5 },
+      { "label": "Pago 2", "amount": 250, "day": 20 }
+    ]
+  },
+  {
+    "name": "Cliente sin Cobro",
+    "amount": 0,
+    "issueDay": null,
+    "collectionDay": null,
+    "paymentMethod": "no_paga",
+    "billingType": "no_charge",
+    "autoDeactivate": false,
+    "notes": "Trato especial"
+  },
+  {
+    "name": "Cliente con Fecha Variable",
+    "amount": 1250,
+    "issueDay": 20,
+    "collectionDay": null,
+    "collectionDayLabel": "Último viernes laborable",
+    "paymentMethod": "transferencia"
+  }
+]

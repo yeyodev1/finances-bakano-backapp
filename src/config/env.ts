@@ -33,7 +33,7 @@ export const env = {
 
   seedAdmin: {
     email: process.env.SEED_ADMIN_EMAIL || "dreyes@bakano.ec",
-    password: process.env.SEED_ADMIN_PASSWORD || "***REMOVED***",
+    password: process.env.SEED_ADMIN_PASSWORD || "",
     name: process.env.SEED_ADMIN_NAME || "Diego Reyes",
   },
 
