@@ -12,6 +12,7 @@ export const invoiceListSchema = z.object({
   period: periodSchema.optional(),
   status: z.enum(INVOICE_STATUSES).optional(),
   clientId: objectIdSchema.optional(),
+  ownerId: objectIdSchema.optional(),
   q: z.string().trim().optional(),
   overdueOnly: booleanish.optional(),
   deferredOnly: booleanish.optional(),

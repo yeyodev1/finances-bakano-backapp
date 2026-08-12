@@ -8,6 +8,8 @@ export interface InvoiceListQuery {
   period?: string;
   status?: InvoiceStatus;
   clientId?: string;
+  /** Responsable de cobro: se resuelve a los clientes que tiene asignados. */
+  ownerId?: string;
   q?: string;
   overdueOnly?: boolean;
   /** Solo facturas con al menos una prórroga registrada. */
@@ -28,6 +30,14 @@ async function list(query: InvoiceListQuery = {}): Promise<PaginatedResult<IInvo
   if (query.period) filter.period = query.period;
   if (query.status) filter.status = query.status;
   if (query.clientId) filter.clientId = query.clientId;
+  if (query.ownerId) {
+    // La factura no guarda responsable: vive en el cliente. Se resuelven sus ids
+    // primero para no arrastrar un $lookup en cada consulta del listado.
+    const owned = await Client.find({ ownerId: query.ownerId }).select("_id").lean();
+    filter.clientId = query.clientId
+      ? query.clientId
+      : { $in: owned.map((c) => c._id) };
+  }
   if (query.q) filter.clientName = { $regex: query.q, $options: "i" };
   if (query.overdueOnly) {
     filter.status = { $in: ["pending", "partial", "overdue"] };
@@ -38,7 +48,7 @@ async function list(query: InvoiceListQuery = {}): Promise<PaginatedResult<IInvo
 
   const [items, total] = await Promise.all([
     Invoice.find(filter)
-      .populate("clientId", "name contactEmail workspaceId workspaceName isActive")
+      .populate("clientId", "name contactEmail workspaceId workspaceName workspaceImageUrl isActive")
       .sort({ dueDate: -1, clientName: 1 })
       .skip((page - 1) * limit)
       .limit(limit),
