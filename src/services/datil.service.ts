@@ -98,16 +98,39 @@ function missingConfig(): string[] {
   return missing;
 }
 
+interface DatilErrorItem {
+  message?: string;
+  details?: string;
+  code?: string;
+  parameter?: string;
+}
+
+/**
+ * Dátil devuelve los rechazos de negocio en `errors[]` y los de formato en la
+ * raíz. Leer solo la raíz dejaba "Request failed with status code 400", que no
+ * dice nada: el motivo real ("Punto de emisión no existe") venía en el array.
+ */
 function describeError(error: unknown): string {
   const err = error as {
-    response?: { status?: number; data?: { message?: string; details?: string; parameter?: string } };
+    response?: { status?: number; data?: DatilErrorItem & { errors?: DatilErrorItem[] } };
     message?: string;
   };
   const data = err?.response?.data;
-  if (data?.message) {
-    const parts = [data.message, data.details, data.parameter && `campo: ${data.parameter}`];
-    return parts.filter(Boolean).join(" · ");
+
+  const list = Array.isArray(data?.errors) ? data!.errors! : data?.message ? [data] : [];
+  if (list.length) {
+    return list
+      .map((item) => {
+        const parts = [
+          item.message || item.details,
+          item.details && item.details !== item.message ? item.details : "",
+          item.parameter ? `campo: ${item.parameter}` : "",
+        ];
+        return parts.filter(Boolean).join(" · ");
+      })
+      .join(" | ");
   }
+
   return err?.message || "Error desconocido de Dátil";
 }
 

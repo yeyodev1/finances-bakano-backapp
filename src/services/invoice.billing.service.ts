@@ -125,7 +125,20 @@ async function issueForInvoice(invoiceId: string, user?: JwtPayload) {
   try {
     // La clave de idempotencia es el id del cobro: si se reintenta tras un
     // timeout, Dátil devuelve la misma factura en vez de emitir otra al SRI.
-    const result = await datilService.issueInvoice(payload, `inv-${invoice._id.toString()}`);
+    let result = await datilService.issueInvoice(payload, `inv-${invoice._id.toString()}`);
+
+    // La respuesta de emisión no trae `estado` ni las URLs del PDF/XML: llegan
+    // al consultar. Sin este paso se guardaría "DESCONOCIDO" y sin comprobante
+    // que abrir, aunque la factura sí se emitió.
+    if (result.id && (!result.estado || result.estado === "DESCONOCIDO" || !result.urlPdf)) {
+      try {
+        const fetched = await datilService.getInvoice(result.id);
+        result = { ...result, ...fetched, numero: fetched.numero ?? result.numero };
+      } catch {
+        // Si la consulta falla, se conserva lo que devolvió la emisión: el
+        // comprobante existe y el botón de refrescar lo completará después.
+      }
+    }
 
     invoice.einvoice = {
       datilId: result.id,
