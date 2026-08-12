@@ -3,6 +3,8 @@ import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
 import {
   getAging,
+  getCashflow,
+  getCollected,
   getChurn,
   getMethodBreakdown,
   getOverdue,
@@ -23,6 +25,8 @@ dashboardRouter.get("/status-breakdown", getStatusBreakdown);
 dashboardRouter.get("/method-breakdown", getMethodBreakdown);
 dashboardRouter.get("/top-clients", getTopClients);
 dashboardRouter.get("/aging", getAging);
+dashboardRouter.get("/cashflow", getCashflow);
+dashboardRouter.get("/collected", getCollected);
 dashboardRouter.get("/upcoming", getUpcoming);
 dashboardRouter.get("/overdue", getOverdue);
 dashboardRouter.get("/churn", getChurn);

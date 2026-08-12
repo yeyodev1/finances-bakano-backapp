@@ -2,6 +2,7 @@ import { Response } from "express";
 import { AuthRequest } from "../types/AuthRequest";
 import { asyncHandler } from "../utils/asyncHandler.util";
 import { dashboardService } from "../services/dashboard.service";
+import { cashflowService } from "../services/cashflow.service";
 
 function periodOf(req: AuthRequest): string | undefined {
   const value = req.query.period;
@@ -41,6 +42,16 @@ export const getAging = asyncHandler(async (_req: AuthRequest, res: Response) =>
 
 export const getUpcoming = asyncHandler(async (req: AuthRequest, res: Response) => {
   res.json(await dashboardService.upcomingCollections(numberOf(req, "days", 15)));
+});
+
+/** Pronóstico semanal: facturas de clientes + cuotas de ventas, y lo atrasado. */
+export const getCashflow = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json(await cashflowService.forecast(numberOf(req, "weeks", 8)));
+});
+
+/** Cobrado real por semana, separando venta nueva de cliente recurrente. */
+export const getCollected = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json(await cashflowService.realized(numberOf(req, "weeks", 6)));
 });
 
 export const getOverdue = asyncHandler(async (req: AuthRequest, res: Response) => {
