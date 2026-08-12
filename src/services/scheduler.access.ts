@@ -15,6 +15,36 @@ function daysBetween(from: Date, to: Date): number {
   return Math.round((startOfDay(to).getTime() - startOfDay(from).getTime()) / 86400000);
 }
 
+/** Días de gracia cuando no hay configuración válida en ningún lado. */
+const FALLBACK_GRACE_DAYS = 5;
+
+/**
+ * Resuelve los días de gracia a un entero >= 0, pase lo que pase.
+ *
+ * Cortar el acceso de un cliente es de las pocas acciones de este sistema que
+ * el cliente NOTA y que manda un correo que no se puede recoger. Un
+ * `graceDays` en `undefined` hacía que `daysOverdue <= undefined` fuera falso
+ * SIEMPRE —comparar con NaN nunca es cierto— y el corte se aplicaba saltándose
+ * la gracia entera, sin fallar ni avisar. Pasó de verdad: se cortaron clientes
+ * con un día de mora teniendo cinco de gracia.
+ *
+ * Ante un valor inservible se toma el más conservador entre el respaldo y lo
+ * recibido, nunca cero: es preferible cortar de más tarde que de más pronto.
+ */
+export function resolveGraceDays(value: unknown, label = "graceDays"): number {
+  // Solo se aceptan números o cadenas numéricas no vacías. `Number()` convierte
+  // `null`, `""` y `[]` en 0, y ese 0 se colaría como "gracia cero", que es
+  // exactamente el corte inmediato que se quiere evitar. Un 0 explícito sí vale.
+  const esNumero = typeof value === "number";
+  const esCadenaNumerica = typeof value === "string" && value.trim() !== "";
+  const n = esNumero || esCadenaNumerica ? Number(value) : NaN;
+  if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  console.error(
+    `[cron] ${label} inválido (${String(value)}); se usa el respaldo de ${FALLBACK_GRACE_DAYS} días.`
+  );
+  return FALLBACK_GRACE_DAYS;
+}
+
 /**
  * Excepciones vencidas: apaga la excepción y, si el cliente sigue en mora, cierra el
  * espacio y avisa por correo que se cerró porque venció la excepción.
@@ -92,13 +122,18 @@ async function loadClient(invoice: IInvoice): Promise<IClient | null> {
 export async function stepDeactivations(
   summary: DeactivationCounters,
   graceDays: number,
-  excluded: unknown[]
+  excluded: unknown[] = []
 ) {
+  // No se confía en el llamador: si el valor no sirve, se usa el respaldo en
+  // vez de dejar que una comparación con NaN desactive la protección.
+  const globalGrace = resolveGraceDays(graceDays, "graceDays");
+  const skipList = Array.isArray(excluded) ? excluded : [];
+
   try {
     const invoices = await Invoice.find({
       status: "overdue",
       "deactivation.deactivatedAt": null,
-      clientId: { $nin: excluded },
+      clientId: { $nin: skipList },
     });
 
     const now = new Date();
@@ -114,9 +149,17 @@ export async function stepDeactivations(
           continue;
         }
 
-        const clientGrace = client.graceDays ?? graceDays;
+        const clientGrace = resolveGraceDays(
+          client.graceDays ?? globalGrace,
+          `graceDays de ${client.name}`
+        );
         const daysOverdue = Math.max(daysBetween(invoice.dueDate, new Date()), 0);
-        if (daysOverdue <= clientGrace) continue;
+
+        // Comparación explícita y positiva: solo se corta si la mora SUPERA la
+        // gracia de forma comprobable. Cualquier valor raro cae del lado de no
+        // cortar, que es el error barato.
+        const debeCortarse = Number.isFinite(daysOverdue) && daysOverdue > clientGrace;
+        if (!debeCortarse) continue;
 
         const reason = `Falta de pago del período ${invoice.period} (${daysOverdue} días de mora)`;
 
