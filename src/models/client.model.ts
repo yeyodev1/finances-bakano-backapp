@@ -90,6 +90,9 @@ export interface IClient extends Document {
   /** Quién persigue el cobro de este cliente. Sin esto no se puede repartir la cobranza. */
   ownerId?: mongoose.Types.ObjectId | null;
   ownerName?: string;
+  /** Rubro del cliente. Se cachea el nombre para no resolver en cada fila. */
+  categoryId?: mongoose.Types.ObjectId | null;
+  categoryName?: string | null;
   /**
    * Datos tributarios para la factura electrónica. Van aquí y no en cada cobro
    * porque son del cliente: el SRI exige identificación y razón social reales,
@@ -241,6 +244,8 @@ const clientSchema = new Schema<IClient>(
     workspaceName: { type: String, default: null },
     ownerId: { type: Schema.Types.ObjectId, ref: "User", default: null, index: true },
     ownerName: { type: String, default: null },
+    categoryId: { type: Schema.Types.ObjectId, ref: "ClientCategory", default: null, index: true },
+    categoryName: { type: String, default: null },
     billing: {
       taxId: { type: String, trim: true },
       idType: { type: String, enum: ["04", "05", "06", "07", "08"], default: "04" },

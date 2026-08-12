@@ -19,6 +19,7 @@ export const clientListSchema = z.object({
   archived: z.enum(["true", "false", "all"]).optional(),
   tag: z.string().trim().optional(),
   ownerId: objectIdSchema.optional(),
+  categoryId: objectIdSchema.optional(),
   sort: z.string().trim().optional(),
   ...paginationSchema,
 });
@@ -44,6 +45,8 @@ export const createClientSchema = z.object({
   isActive: z.boolean().optional(),
   /** Usuario que persigue el cobro de este cliente. */
   ownerId: objectIdSchema.nullable().optional(),
+  /** Rubro del cliente. Las categorías se crean desde la app, no están fijas. */
+  categoryId: objectIdSchema.nullable().optional(),
   /** Datos tributarios para la factura electrónica (Dátil → SRI). */
   billing: z
     .object({
@@ -77,6 +80,14 @@ export const linkWorkspaceSchema = z.object({
 export const backfillSchema = z.object({
   fromDate: dateSchema,
   markPaidUntil: dateSchema.nullable().optional(),
+});
+
+export const clientCategorySchema = z.object({
+  name: z.string().trim().min(2, "El nombre de la categoría es muy corto."),
+  color: z.string().trim().max(30).optional(),
+  icon: z.string().trim().max(60).optional(),
+  description: z.string().trim().max(300).optional(),
+  isActive: z.boolean().optional(),
 });
 
 export const clientIdParamSchema = z.object({ id: objectIdSchema });

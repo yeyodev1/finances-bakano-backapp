@@ -9,6 +9,7 @@ import { idParamSchema } from "../validators/common.schema";
 import {
   archiveClientSchema,
   backfillSchema,
+  clientCategorySchema,
   clientListSchema,
   createClientSchema,
   grantAccessSchema,
@@ -33,6 +34,28 @@ clientRouter.get("/archived", clientController.listArchived);
 clientRouter.get("/access-overrides", clientController.listAccessOverrides);
 clientRouter.post("/", canWrite, validate(createClientSchema), clientController.create);
 clientRouter.post("/sync-workspace-images", canWrite, clientController.syncWorkspaceImages);
+
+// Las rutas de categoría van ANTES de "/:id" o Express tomaría "categories" como id.
+clientRouter.get("/categories", clientController.listCategories);
+clientRouter.post(
+  "/categories",
+  canWrite,
+  validate(clientCategorySchema),
+  clientController.createCategory
+);
+clientRouter.put(
+  "/categories/:id",
+  canWrite,
+  validate(idParamSchema, "params"),
+  validate(clientCategorySchema.partial()),
+  clientController.updateCategory
+);
+clientRouter.delete(
+  "/categories/:id",
+  canWrite,
+  validate(idParamSchema, "params"),
+  clientController.removeCategory
+);
 
 clientRouter.get("/:id", validate(idParamSchema, "params"), clientController.getById);
 clientRouter.put(

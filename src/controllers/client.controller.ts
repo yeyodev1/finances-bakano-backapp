@@ -1,5 +1,6 @@
 import { Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler.util";
+import { clientCategoryService } from "../services/clientCategory.service";
 import { clientService, ClientListQuery } from "../services/client.service";
 import { accessService } from "../services/access.service";
 import { invoiceService } from "../services/invoice.service";
@@ -44,6 +45,24 @@ function filesOf(req: AuthRequest): Express.Multer.File[] {
   const files = (req as { files?: unknown }).files;
   return Array.isArray(files) ? (files as Express.Multer.File[]) : [];
 }
+
+// ── Categorías de cliente ────────────────────────────────────────
+export const listCategories = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const includeInactive = req.query.includeInactive === "true";
+  res.status(200).json({ items: await clientCategoryService.list(includeInactive) });
+});
+
+export const createCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(201).json(await clientCategoryService.create(req.body, req.user));
+});
+
+export const updateCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(200).json(await clientCategoryService.update(param(req, "id"), req.body));
+});
+
+export const removeCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(200).json(await clientCategoryService.remove(param(req, "id")));
+});
 
 export const archive = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { reason, notes, archivedAt } = req.body as {

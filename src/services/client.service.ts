@@ -1,5 +1,5 @@
 import { FilterQuery } from "mongoose";
-import { Client, IClient, User } from "../models";
+import { Client, ClientCategory, IClient, User } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { BillingType, PaginatedResult, PaymentMethod } from "../types/finance.types";
 import {
@@ -29,6 +29,7 @@ export interface ClientListQuery {
   archived?: ArchivedFilter;
   tag?: string;
   ownerId?: string;
+  categoryId?: string;
   page?: number;
   limit?: number;
   sort?: string;
@@ -57,6 +58,7 @@ async function list(query: ClientListQuery = {}): Promise<PaginatedResult<Client
   if (typeof query.isActive === "boolean") filter.isActive = query.isActive;
   if (query.tag) filter.tags = query.tag;
   if (query.ownerId) filter.ownerId = query.ownerId;
+  if (query.categoryId) filter.categoryId = query.categoryId;
   if (typeof query.hasWorkspace === "boolean") {
     filter.workspaceId = query.hasWorkspace ? { $nin: [null, ""] } : { $in: [null, ""] };
   }
@@ -130,6 +132,17 @@ async function getDetail(id: string) {
  * listas de cobros lo muestran en cada fila y resolverlo por lookup en cada
  * consulta no compensa.
  */
+async function resolveCategoryName(input: Partial<IClient>): Promise<void> {
+  if (!("categoryId" in input)) return;
+  if (!input.categoryId) {
+    input.categoryName = null;
+    return;
+  }
+  const category = await ClientCategory.findById(input.categoryId);
+  if (!category) throw new CustomError("La categoría no existe", 404);
+  input.categoryName = category.name;
+}
+
 async function resolveOwnerName(input: Partial<IClient>): Promise<void> {
   if (!("ownerId" in input)) return;
   if (!input.ownerId) {
@@ -146,6 +159,7 @@ async function create(input: Partial<IClient>, userId?: string) {
   if (exists) throw new CustomError("Ya existe un cliente con ese nombre", 409);
 
   await resolveOwnerName(input);
+  await resolveCategoryName(input);
   const client = await Client.create({ ...input, createdBy: userId });
 
   // El cron mensual ya corrió para el período en curso, así que un alta a mitad
@@ -180,6 +194,7 @@ async function update(id: string, input: Partial<IClient>) {
   forbidden.forEach((key) => delete (input as Record<string, unknown>)[key]);
 
   await resolveOwnerName(input);
+  await resolveCategoryName(input);
   client.set(input);
   await client.save();
   return client;
