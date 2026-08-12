@@ -24,8 +24,6 @@ invoiceRouter.use(auth);
 
 invoiceRouter.get("/", validate(invoiceListSchema, "query"), invoiceController.list);
 invoiceRouter.get("/summary", validate(invoiceSummarySchema, "query"), invoiceController.summary);
-invoiceRouter.get("/billing-summary", invoiceController.billingSummary);
-invoiceRouter.get("/einvoices", invoiceController.listEInvoices);
 invoiceRouter.post(
   "/generate",
   canWrite,
@@ -40,18 +38,6 @@ invoiceRouter.post(
   invoiceController.createAdvance
 );
 
-invoiceRouter.post(
-  "/:id/einvoice",
-  canWrite,
-  validate(idParamSchema, "params"),
-  invoiceController.issueEInvoice
-);
-invoiceRouter.post(
-  "/:id/einvoice/refresh",
-  canWrite,
-  validate(idParamSchema, "params"),
-  invoiceController.refreshEInvoice
-);
 invoiceRouter.get("/:id", validate(idParamSchema, "params"), invoiceController.getById);
 invoiceRouter.put(
   "/:id",

@@ -37,39 +37,6 @@ export const env = {
     cacheTtl: Number(process.env.MERCURY_CACHE_TTL || 60),
   },
 
-  /**
-   * Facturación electrónica (Dátil → SRI).
-   *
-   * `apiKey` autoriza el acceso; `certPassword` es la clave del certificado de
-   * firma y solo hace falta para EMITIR. Sin ambas, la integración se apaga
-   * sola y la app sigue funcionando: facturar es opcional sobre el cobro.
-   *
-   * `ambiente`: 1 = pruebas, 2 = producción. Se deja en pruebas por defecto a
-   * propósito: emitir en producción manda el comprobante al SRI de verdad y no
-   * se puede deshacer, solo anular con nota de crédito.
-   */
-  datil: {
-    apiUrl: (process.env.DATIL_API_URL || "https://link.datil.co").replace(/\/+$/, ""),
-    apiKey: process.env.DATIL_API_KEY || "",
-    certPassword: process.env.DATIL_CERT_PASSWORD || "",
-    ambiente: Number(process.env.DATIL_AMBIENTE || 1),
-    timeout: Number(process.env.DATIL_TIMEOUT_MS || 30000),
-    /** Datos del emisor: salen del RUC de Bakano, no se inventan. */
-    emisor: {
-      ruc: process.env.DATIL_RUC || "",
-      razonSocial: process.env.DATIL_RAZON_SOCIAL || "",
-      nombreComercial: process.env.DATIL_NOMBRE_COMERCIAL || "Bakano",
-      direccion: process.env.DATIL_DIRECCION || "",
-      obligadoContabilidad: process.env.DATIL_OBLIGADO_CONTABILIDAD === "true",
-      contribuyenteEspecial: process.env.DATIL_CONTRIBUYENTE_ESPECIAL || "",
-      establecimiento: {
-        codigo: process.env.DATIL_ESTABLECIMIENTO || "001",
-        puntoEmision: process.env.DATIL_PUNTO_EMISION || "001",
-        direccion: process.env.DATIL_ESTABLECIMIENTO_DIRECCION || process.env.DATIL_DIRECCION || "",
-      },
-    },
-  },
-
   appUrl: process.env.APP_URL || "http://localhost:5173",
   cronSecret: process.env.CRON_SECRET || "",
   cronEnabled: process.env.CRON_ENABLED !== "false",
