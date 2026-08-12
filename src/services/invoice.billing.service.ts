@@ -261,7 +261,75 @@ async function summary(period?: string) {
   };
 }
 
+/**
+ * Listado de facturas electrónicas emitidas.
+ *
+ * Se arma desde nuestra base y no desde Dátil porque su API **no tiene endpoint
+ * de listado**: solo permite consultar por id (`GET /invoices/<id>`). Además
+ * así cada factura llega ya ligada a su cliente y a lo cobrado, que es lo que
+ * hace falta para conciliar.
+ */
+async function listEInvoices(query: {
+  estado?: string;
+  clientId?: string;
+  period?: string;
+  /** "pagada" | "pendiente": cruce entre la factura y el dinero. */
+  cobro?: string;
+  q?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const page = Math.max(Number(query.page) || 1, 1);
+  const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 200);
+
+  const filter: Record<string, unknown> = { "einvoice.datilId": { $exists: true, $ne: null } };
+  if (query.estado) filter["einvoice.estado"] = query.estado;
+  if (query.clientId) filter.clientId = query.clientId;
+  if (query.period) filter.period = query.period;
+  if (query.q) filter.clientName = { $regex: query.q, $options: "i" };
+
+  const [rows, total] = await Promise.all([
+    Invoice.find(filter)
+      .sort({ "einvoice.emitidaAt": -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .populate("clientId", "name workspaceImageUrl billing")
+      .lean(),
+    Invoice.countDocuments(filter),
+  ]);
+
+  const items = rows
+    .map((inv) => {
+      const pagado = Number(inv.paidAmount ?? 0);
+      const saldo = Math.max(Number(inv.amount) - pagado, 0);
+      return {
+        invoiceId: String(inv._id),
+        clientId: String((inv.clientId as { _id?: unknown })?._id ?? inv.clientId),
+        clientName: inv.clientName,
+        clientImage: (inv.clientId as { workspaceImageUrl?: string })?.workspaceImageUrl ?? null,
+        taxId: (inv.clientId as { billing?: { taxId?: string } })?.billing?.taxId ?? null,
+        period: inv.period,
+        amount: Number(inv.amount),
+        paidAmount: pagado,
+        saldo: Number(saldo.toFixed(2)),
+        /** Cruce factura/dinero: es el descuadre que hay que perseguir. */
+        conciliada: saldo <= 0.009,
+        estadoCobro: inv.status,
+        einvoice: inv.einvoice,
+      };
+    })
+    // El cruce se filtra ya calculado: depende de amount y paidAmount juntos.
+    .filter((row) => {
+      if (query.cobro === "pagada") return row.conciliada;
+      if (query.cobro === "pendiente") return !row.conciliada;
+      return true;
+    });
+
+  return { items, total, page, limit, pages: Math.ceil(total / limit) || 1 };
+}
+
 export const invoiceBillingService = {
+  listEInvoices,
   issueForInvoice,
   refreshStatus,
   summary,

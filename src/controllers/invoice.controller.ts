@@ -58,6 +58,11 @@ export const undoDefer = asyncHandler(async (req: AuthRequest, res: Response) =>
   res.status(200).json(await invoiceService.removeLastDeferral(param(req, "id"), req.user));
 });
 
+/** Facturas electrónicas emitidas, con su cruce contra lo cobrado. */
+export const listEInvoices = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(200).json(await invoiceBillingService.listEInvoices(req.query as Record<string, string>));
+});
+
 /** Emite la factura electrónica del cobro. No cambia su estado de pago. */
 export const issueEInvoice = asyncHandler(async (req: AuthRequest, res: Response) => {
   res.status(201).json(await invoiceBillingService.issueForInvoice(param(req, "id"), req.user));

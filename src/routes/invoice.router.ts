@@ -25,6 +25,7 @@ invoiceRouter.use(auth);
 invoiceRouter.get("/", validate(invoiceListSchema, "query"), invoiceController.list);
 invoiceRouter.get("/summary", validate(invoiceSummarySchema, "query"), invoiceController.summary);
 invoiceRouter.get("/billing-summary", invoiceController.billingSummary);
+invoiceRouter.get("/einvoices", invoiceController.listEInvoices);
 invoiceRouter.post(
   "/generate",
   canWrite,
