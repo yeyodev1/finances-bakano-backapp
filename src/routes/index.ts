@@ -7,6 +7,7 @@ import paymentRouter from "./payment.router";
 import dashboardRouter from "./dashboard.router";
 import settingsRouter from "./settings.router";
 import workspaceRouter from "./workspace.router";
+import mercuryRouter from "./mercury.router";
 import cronRouter from "./cron.router";
 
 function routerApi(app: Application) {
@@ -22,6 +23,7 @@ function routerApi(app: Application) {
   router.use("/dashboard", dashboardRouter);
   router.use("/settings", settingsRouter);
   router.use("/workspaces", workspaceRouter);
+  router.use("/mercury", mercuryRouter);
   router.use("/cron", cronRouter);
 }
 

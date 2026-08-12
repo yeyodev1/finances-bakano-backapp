@@ -27,6 +27,16 @@ export const env = {
     apiKey: process.env.FINANCE_API_KEY || "",
   },
 
+  /** Banco (Mercury). Integración de SOLO LECTURA: nunca se emiten POST/PATCH/DELETE. */
+  mercury: {
+    apiUrl: (process.env.MERCURY_API_URL || "https://api.mercury.com/api/v1").replace(/\/+$/, ""),
+    /** Debe incluir el prefijo `secret-token:` tal como lo entrega Mercury. */
+    token: process.env.MERCURY_API_TOKEN || "",
+    timeout: Number(process.env.MERCURY_TIMEOUT_MS || 20000),
+    /** Segundos de caché en memoria para no golpear la API en cada refresh del frontend. */
+    cacheTtl: Number(process.env.MERCURY_CACHE_TTL || 60),
+  },
+
   appUrl: process.env.APP_URL || "http://localhost:5173",
   cronSecret: process.env.CRON_SECRET || "",
   cronEnabled: process.env.CRON_ENABLED !== "false",

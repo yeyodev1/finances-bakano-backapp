@@ -861,3 +861,71 @@ adeudado, días de mora, motivo, quién lo autorizó y hasta cuándo.
 
 El resumen mensual (`monthly_summary`) incluye una sección **"Abiertos por excepción"** con
 todos los clientes en esa situación, si los hay.
+
+---
+
+## Banco / Mercury (`/mercury`) — solo lectura
+
+Integración **read-only** con la API de Mercury (`https://api.mercury.com/api/v1`). El backend
+solo emite `GET`: no existe ninguna ruta que mueva dinero. Requiere rol `superadmin` o `admin`.
+
+Configuración (`.env`):
+
+```
+MERCURY_API_URL=https://api.mercury.com/api/v1
+MERCURY_API_TOKEN=secret-token:mercury_production_...   # incluye el prefijo "secret-token:"
+MERCURY_TIMEOUT_MS=20000
+MERCURY_CACHE_TTL=60      # segundos de caché en memoria
+```
+
+> Usar un token **`Read Only` y sin IPs en el whitelist**: Mercury solo exige whitelist a los
+> tokens con escritura, y Vercel no tiene IP de salida fija. Si el token tiene alguna IP en la
+> lista, Mercury la aplica y responde `401 ipNotWhitelisted`; el backend lo traduce a `502` con
+> el mensaje y la IP rechazada (visible en `GET /mercury/health`).
+
+Todas las rutas aceptan `?refresh=true` para saltarse la caché.
+
+| Método | Ruta                                     | Qué devuelve                                              |
+| ------ | ---------------------------------------- | --------------------------------------------------------- |
+| GET    | `/mercury/health`                        | `{ configured, reachable, message, errorCode, ip }`        |
+| GET    | `/mercury/overview?days=180`             | Cuentas, totales, flujo mensual, contrapartes y últimos 15 |
+| GET    | `/mercury/subscriptions?days=365`        | Suscripciones inferidas de los cargos recurrentes          |
+| GET    | `/mercury/accounts`                      | `{ configured, total, currentBalance, availableBalance, items }` |
+| GET    | `/mercury/accounts/:id`                  | Cuenta por ID                                              |
+| GET    | `/mercury/accounts/:id/transactions`     | `{ total, limit, offset, items }`                          |
+| GET    | `/mercury/accounts/:id/cards`            | `{ total, items }`                                         |
+| GET    | `/mercury/accounts/:id/statements`       | `{ total, items }` (incluye `downloadUrl` del PDF)         |
+| GET    | `/mercury/treasury`                      | Cuentas de tesorería y su saldo                            |
+
+Filtros de `/transactions`: `limit` (1–500), `offset`, `order` (`asc|desc`), `start`, `end`
+(`YYYY-MM-DD`), `search`, `status` (`pending|sent|cancelled|failed|reversed|blocked`),
+`mercuryCategory`, `categoryId`, y `onlySubscriptions=true`.
+
+Cada movimiento vuelve con `subscription`: `null`, o `{ key, name, cadenceLabel, status,
+monthlyCost }` si el cargo pertenece a una suscripción detectada. Con `onlySubscriptions=true`
+el filtrado y la paginación se hacen en el backend (Mercury no conoce esa marca).
+
+> El `total` que devuelve Mercury en `/transactions` es el tamaño de la página, **no** el total
+> real de movimientos. Por eso la respuesta expone `hasMore` (se pide un registro extra para
+> saber si hay página siguiente) en lugar de un total y un número de páginas.
+
+### Suscripciones
+
+Mercury no marca qué cobro es una suscripción. `/mercury/subscriptions` las **infiere**:
+agrupa los cargos de salida por comercio normalizado **y monto exacto**, colapsa los reintentos
+(un cobro rechazado se reintenta varios días seguidos y no debe contarse como cobros distintos)
+y se queda con los grupos donde ese monto domina el gasto del comercio. Los gastos de monto
+variable (Uber, comida, publicidad) quedan fuera y se devuelven aparte en `candidates`.
+
+Estados: `active` (al día) · `due` (ya debía haber cobrado) · `failing` (el banco rechazó el
+último cobro; el servicio se va a cortar) · `stale` (sin cobros hace más de dos ciclos).
+
+`history` informa cuántos días de movimientos había realmente disponibles: con pocas semanas de
+cuenta, la frecuencia y el costo mensual salen marcados como `estimated`.
+
+```bash
+curl "http://localhost:8101/api/mercury/health" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/mercury/overview?days=180" -H "Authorization: Bearer $TOKEN"
+curl "http://localhost:8101/api/mercury/accounts/$ACCOUNT_ID/transactions?limit=50&status=sent" \
+  -H "Authorization: Bearer $TOKEN"
+```
