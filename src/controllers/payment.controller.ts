@@ -27,6 +27,11 @@ export const register = asyncHandler(async (req: AuthRequest, res: Response) => 
   res.status(201).json(result);
 });
 
+/** Registra un pago único que salda varios cobros del mismo cliente. */
+export const settle = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(201).json(await paymentService.settle(req.body, req.user));
+});
+
 export const getById = asyncHandler(async (req: AuthRequest, res: Response) => {
   res.status(200).json(await paymentService.getById(param(req, "id")));
 });

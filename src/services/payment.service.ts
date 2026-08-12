@@ -1,5 +1,5 @@
 import { FilterQuery } from "mongoose";
-import { AuditLog, Client, Invoice, IPayment, Payment } from "../models";
+import { AuditLog, Client, IInvoice, Invoice, IPayment, Payment } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { PaginatedResult, PaymentMethod } from "../types/finance.types";
 import { JwtPayload } from "../types/AuthRequest";
@@ -243,4 +243,91 @@ async function remove(id: string, user?: JwtPayload) {
   return { message: "Pago eliminado y factura recalculada" };
 }
 
-export const paymentService = { register, list, getById, remove };
+/**
+ * Un solo pago que salda varios cobros del mismo cliente.
+ *
+ * Pasa siempre con los cobros divididos: el cliente debe 210 el 8 y 210 el 23,
+ * pero transfiere los 420 de una. Antes había que registrar dos pagos a mano y
+ * repartir el monto de cabeza.
+ *
+ * Se reparte de la cuota MÁS VIEJA a la más nueva —primero se salda la mora— y
+ * se delega en `register` factura por factura para no duplicar sus efectos:
+ * recálculo de estado, correo, auditoría y reactivación del workspace.
+ */
+async function settle(
+  input: {
+    clientId: string;
+    amount: number;
+    paidAt?: Date | string;
+    method?: PaymentMethod;
+    reference?: string;
+    notes?: string;
+    invoiceIds?: string[];
+  },
+  user?: JwtPayload
+) {
+  const client = await Client.findById(input.clientId);
+  if (!client) throw new CustomError("Cliente no encontrado", 404);
+
+  let remaining = Number(input.amount);
+  if (!Number.isFinite(remaining) || remaining <= 0) {
+    throw new CustomError("El monto del pago debe ser mayor a cero", 400);
+  }
+
+  const filter: FilterQuery<IInvoice> = {
+    clientId: client._id,
+    status: { $in: ["pending", "partial", "overdue"] },
+  };
+  if (input.invoiceIds?.length) filter._id = { $in: input.invoiceIds };
+
+  const open = await Invoice.find(filter).sort({ dueDate: 1, splitIndex: 1 });
+  if (!open.length) {
+    throw new CustomError("Este cliente no tiene cobros pendientes.", 400);
+  }
+
+  const totalOpen = open.reduce(
+    (acc, inv) => acc + Math.max(inv.amount - (inv.paidAmount || 0), 0),
+    0
+  );
+  if (remaining > totalOpen + 0.009) {
+    throw new CustomError(
+      `El monto supera el saldo pendiente del cliente (${totalOpen.toFixed(2)}).`,
+      400
+    );
+  }
+
+  const applied: Array<{ invoiceId: string; period: string; amount: number }> = [];
+
+  for (const invoice of open) {
+    if (remaining <= 0.009) break;
+    const balance = Math.max(invoice.amount - (invoice.paidAmount || 0), 0);
+    if (balance <= 0) continue;
+
+    const portion = Number(Math.min(balance, remaining).toFixed(2));
+    await register(
+      {
+        invoiceId: invoice._id.toString(),
+        amount: portion,
+        paidAt: input.paidAt,
+        method: input.method,
+        reference: input.reference,
+        notes: input.notes,
+      },
+      user
+    );
+
+    applied.push({ invoiceId: invoice._id.toString(), period: invoice.period, amount: portion });
+    remaining = Number((remaining - portion).toFixed(2));
+  }
+
+  return {
+    clientId: client._id.toString(),
+    clientName: client.name,
+    totalApplied: Number(applied.reduce((a, x) => a + x.amount, 0).toFixed(2)),
+    invoicesSettled: applied.length,
+    applied,
+    message: `Pago repartido entre ${applied.length} cobro(s) de ${client.name}`,
+  };
+}
+
+export const paymentService = { register, settle, list, getById, remove };
