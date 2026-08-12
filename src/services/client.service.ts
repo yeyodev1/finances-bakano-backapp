@@ -16,6 +16,7 @@ import {
   isOverrideActive,
 } from "./access.status.service";
 import { invoiceGenerationService } from "./invoice.generation.service";
+import { metricsService } from "./metrics.service";
 import { toPeriod } from "../utils/date.util";
 
 export type ArchivedFilter = "true" | "false" | "all";
@@ -161,6 +162,28 @@ async function create(input: Partial<IClient>, userId?: string) {
   await resolveOwnerName(input);
   await resolveCategoryName(input);
   const client = await Client.create({ ...input, createdBy: userId });
+
+  // Espacio de trabajo en métricas. Sin él no hay logo, ni corte por mora, ni
+  // nada que mostrarle al cliente: crearlo a mano después se olvidaba. Si ya
+  // existe uno con ese nombre se reutiliza en vez de duplicarlo.
+  if (!client.workspaceId) {
+    try {
+      const result = await metricsService.createWorkspace(client.name);
+      if (result?.workspace?._id) {
+        client.workspaceId = String(result.workspace._id);
+        client.workspaceName = result.workspace.name ?? client.name;
+        client.workspaceIsActive = result.workspace.isActive !== false;
+        client.workspaceLinkedAt = new Date();
+        await client.save();
+      }
+    } catch (error) {
+      // Nunca tumbar el alta por esto: el espacio se puede vincular a mano.
+      console.error(
+        `[clients] No se pudo crear el espacio de ${client.name}:`,
+        (error as Error).message
+      );
+    }
+  }
 
   // El cron mensual ya corrió para el período en curso, así que un alta a mitad
   // de mes quedaba sin cobro hasta el mes siguiente: su primer pago no tenía

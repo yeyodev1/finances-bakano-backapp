@@ -160,6 +160,31 @@ function unwrap<T>(payload: unknown): T {
   return payload as T;
 }
 
+/**
+ * Crea el espacio del cliente en métricas. El endpoint es idempotente: si ya
+ * existía uno con ese nombre lo devuelve y responde `created: false`.
+ */
+async function createWorkspace(
+  name: string
+): Promise<{ workspace: MetricsWorkspace; created: boolean } | null> {
+  if (!isConfigured()) {
+    console.warn("[metrics] No configurado; no se crea el espacio");
+    return null;
+  }
+
+  try {
+    const res = await request(() => getClient().post(BASE_PATH, { name }));
+    const data = res.data as { workspace?: MetricsWorkspace; created?: boolean };
+    const workspace = unwrap<MetricsWorkspace>(data) ?? data.workspace;
+    if (!workspace?._id) return null;
+    return { workspace, created: Boolean(data.created) };
+  } catch (error) {
+    console.error("[metrics] Error creando el espacio:", describeError(error));
+    await logError("metrics.createWorkspace", undefined, error);
+    return null;
+  }
+}
+
 async function listWorkspaces(): Promise<MetricsWorkspace[]> {
   if (!isConfigured()) {
     console.warn("[metrics] Backend de métricas no configurado; se devuelve lista vacía");
@@ -244,6 +269,7 @@ async function health(): Promise<{ configured: boolean; reachable: boolean; mess
 }
 
 export const metricsService = {
+  createWorkspace,
   isConfigured,
   listWorkspaces,
   getWorkspace,
