@@ -1,5 +1,5 @@
 import { FilterQuery } from "mongoose";
-import { Client, IClient } from "../models";
+import { Client, IClient, User } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { BillingType, PaginatedResult, PaymentMethod } from "../types/finance.types";
 import {
@@ -15,6 +15,8 @@ import {
   accessStatusMap,
   isOverrideActive,
 } from "./access.status.service";
+import { invoiceGenerationService } from "./invoice.generation.service";
+import { toPeriod } from "../utils/date.util";
 
 export type ArchivedFilter = "true" | "false" | "all";
 
@@ -26,6 +28,7 @@ export interface ClientListQuery {
   hasWorkspace?: boolean;
   archived?: ArchivedFilter;
   tag?: string;
+  ownerId?: string;
   page?: number;
   limit?: number;
   sort?: string;
@@ -53,6 +56,7 @@ async function list(query: ClientListQuery = {}): Promise<PaginatedResult<Client
   if (query.billingType) filter.billingType = query.billingType;
   if (typeof query.isActive === "boolean") filter.isActive = query.isActive;
   if (query.tag) filter.tags = query.tag;
+  if (query.ownerId) filter.ownerId = query.ownerId;
   if (typeof query.hasWorkspace === "boolean") {
     filter.workspaceId = query.hasWorkspace ? { $nin: [null, ""] } : { $in: [null, ""] };
   }
@@ -121,11 +125,47 @@ async function getDetail(id: string) {
   };
 }
 
+/**
+ * Cachea el nombre del responsable junto al id. Se denormaliza a propósito: las
+ * listas de cobros lo muestran en cada fila y resolverlo por lookup en cada
+ * consulta no compensa.
+ */
+async function resolveOwnerName(input: Partial<IClient>): Promise<void> {
+  if (!("ownerId" in input)) return;
+  if (!input.ownerId) {
+    input.ownerName = undefined;
+    return;
+  }
+  const owner = await User.findById(input.ownerId).select("name");
+  if (!owner) throw new CustomError("El responsable de cobro no existe", 404);
+  input.ownerName = owner.name;
+}
+
 async function create(input: Partial<IClient>, userId?: string) {
   const exists = await Client.findOne({ name: input.name });
   if (exists) throw new CustomError("Ya existe un cliente con ese nombre", 409);
 
-  return Client.create({ ...input, createdBy: userId });
+  await resolveOwnerName(input);
+  const client = await Client.create({ ...input, createdBy: userId });
+
+  // El cron mensual ya corrió para el período en curso, así que un alta a mitad
+  // de mes quedaba sin cobro hasta el mes siguiente: su primer pago no tenía
+  // contra qué registrarse y el cliente no aparecía en el histórico.
+  // `generateForPeriod` es idempotente y respeta startDate/billingStartPeriod,
+  // así que si al cliente no le toca facturar este mes simplemente no crea nada.
+  try {
+    await invoiceGenerationService.generateForPeriod(toPeriod(), {
+      clientIds: [client._id.toString()],
+    });
+  } catch (error) {
+    // Nunca tumbar el alta por esto: el cobro se puede generar después a mano.
+    console.error(
+      `[clients] No se pudo generar el primer cobro de ${client.name}:`,
+      (error as Error).message
+    );
+  }
+
+  return client;
 }
 
 async function update(id: string, input: Partial<IClient>) {
@@ -139,6 +179,7 @@ async function update(id: string, input: Partial<IClient>) {
   const forbidden = ["_id", "createdAt", "updatedAt", "createdBy"];
   forbidden.forEach((key) => delete (input as Record<string, unknown>)[key]);
 
+  await resolveOwnerName(input);
   client.set(input);
   await client.save();
   return client;
@@ -208,6 +249,7 @@ export const clientService = {
   syncWorkspaceImages: clientWorkspaceService.syncWorkspaceImages,
   archive: clientLifecycleService.archive,
   reactivate: clientLifecycleService.reactivate,
+  updateLifecycleDates: clientLifecycleService.updateLifecycleDates,
   addLifecycleAttachments: clientLifecycleService.addLifecycleAttachments,
   purge: clientLifecycleService.purge,
   listArchived: clientLifecycleService.listArchived,

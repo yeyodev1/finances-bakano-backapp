@@ -46,13 +46,26 @@ function filesOf(req: AuthRequest): Express.Multer.File[] {
 }
 
 export const archive = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const { reason, notes } = req.body as { reason?: string; notes?: string };
+  const { reason, notes, archivedAt } = req.body as {
+    reason?: string;
+    notes?: string;
+    archivedAt?: string;
+  };
   const result = await clientService.archive(
     param(req, "id"),
-    { reason, notes, attachments: filesOf(req) },
+    { reason, notes, archivedAt, attachments: filesOf(req) },
     req.user
   );
   res.status(200).json(result);
+});
+
+export const updateLifecycleDates = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { startDate, archivedAt } = req.body as { startDate?: string; archivedAt?: string };
+  res
+    .status(200)
+    .json(
+      await clientService.updateLifecycleDates(param(req, "id"), { startDate, archivedAt }, req.user)
+    );
 });
 
 export const reactivate = asyncHandler(async (req: AuthRequest, res: Response) => {

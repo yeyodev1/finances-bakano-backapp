@@ -18,6 +18,7 @@ export const clientListSchema = z.object({
   hasWorkspace: booleanish.optional(),
   archived: z.enum(["true", "false", "all"]).optional(),
   tag: z.string().trim().optional(),
+  ownerId: objectIdSchema.optional(),
   sort: z.string().trim().optional(),
   ...paginationSchema,
 });
@@ -41,6 +42,8 @@ export const createClientSchema = z.object({
   autoDeactivate: z.boolean().optional(),
   graceDays: z.number().int().min(0).nullable().optional(),
   isActive: z.boolean().optional(),
+  /** Usuario que persigue el cobro de este cliente. */
+  ownerId: objectIdSchema.nullable().optional(),
   startDate: dateSchema.optional(),
   endDate: dateSchema.nullable().optional(),
   stripeCustomerId: z.string().trim().optional(),
@@ -70,7 +73,22 @@ export const clientIdParamSchema = z.object({ id: objectIdSchema });
 export const archiveClientSchema = z.object({
   reason: z.enum(ARCHIVE_REASONS, { message: "Debes indicar el motivo de la baja." }),
   notes: z.string().trim().optional(),
+  /** Fecha real de la baja. Si se omite se usa hoy. */
+  archivedAt: dateSchema.optional(),
 });
+
+/**
+ * Corrección de las fechas del ciclo de vida por parte de la project manager.
+ * Se aceptan por separado porque casi siempre se corrige una sola.
+ */
+export const lifecycleDatesSchema = z
+  .object({
+    startDate: dateSchema.optional(),
+    archivedAt: dateSchema.optional(),
+  })
+  .refine((data) => data.startDate || data.archivedAt, {
+    message: "Indica al menos una fecha para corregir.",
+  });
 
 export const reactivateClientSchema = z.object({
   notes: z.string().trim().optional(),

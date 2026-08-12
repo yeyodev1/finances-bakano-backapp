@@ -87,6 +87,9 @@ export interface IClient extends Document {
   /** Vínculo con el espacio de trabajo en el backend de métricas. */
   workspaceId?: string;
   workspaceName?: string;
+  /** Quién persigue el cobro de este cliente. Sin esto no se puede repartir la cobranza. */
+  ownerId?: mongoose.Types.ObjectId | null;
+  ownerName?: string;
   workspaceLinkedAt?: Date;
   /** Imagen del espacio traída de métricas (logo del cliente o foto de su página). */
   workspaceImageUrl?: string | null;
@@ -220,6 +223,8 @@ const clientSchema = new Schema<IClient>(
 
     workspaceId: { type: String, default: null, index: true },
     workspaceName: { type: String, default: null },
+    ownerId: { type: Schema.Types.ObjectId, ref: "User", default: null, index: true },
+    ownerName: { type: String, default: null },
     workspaceLinkedAt: { type: Date, default: null },
     workspaceImageUrl: { type: String, default: null },
     accessOverride: { type: accessOverrideSchema, default: () => ({ enabled: false }) },

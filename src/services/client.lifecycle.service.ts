@@ -20,6 +20,13 @@ export interface ArchiveInput {
   reason?: string;
   notes?: string;
   attachments?: Express.Multer.File[];
+  /** Fecha real de la baja. Sin esto solo se podía dar de baja "hoy". */
+  archivedAt?: Date | string;
+}
+
+export interface LifecycleDatesInput {
+  startDate?: Date | string;
+  archivedAt?: Date | string;
 }
 
 export interface ReactivateInput {
@@ -160,7 +167,19 @@ async function archive(clientId: string, input: ArchiveInput, user?: JwtPayload)
     throw new CustomError("Este cliente ya está dado de baja.", 400);
   }
 
-  const archivedAt = new Date();
+  const archivedAt = input.archivedAt ? new Date(input.archivedAt) : new Date();
+  if (Number.isNaN(archivedAt.getTime())) {
+    throw new CustomError("La fecha de baja es inválida.", 400);
+  }
+
+  const startForCheck = client.startDate || client.createdAt;
+  if (startForCheck && archivedAt < new Date(startForCheck)) {
+    throw new CustomError(
+      "La fecha de baja no puede ser anterior a la fecha de entrada del cliente.",
+      400
+    );
+  }
+
   const attachments = await uploadAttachments(input.attachments);
   const revenueToDate = await lifetimeRevenueOf(client._id);
   const start = client.startDate || client.createdAt;
@@ -381,9 +400,101 @@ async function listArchived(limit = 100): Promise<ArchivedClientRow[]> {
   }));
 }
 
+/**
+ * Corrige la fecha de entrada y/o la de baja de un cliente ya archivado.
+ * No basta con un `PUT /clients/:id`: `lifetimeDays`, `endDate`, `deactivatedAt`
+ * y la entrada correspondiente del `lifecycleHistory` se derivan de esas fechas,
+ * y quedarían inconsistentes. Aquí se recalcula todo junto.
+ */
+async function updateLifecycleDates(
+  clientId: string,
+  input: LifecycleDatesInput,
+  user?: JwtPayload
+) {
+  const client = await findClient(clientId);
+
+  const startDate = input.startDate ? new Date(input.startDate) : client.startDate;
+  if (startDate && Number.isNaN(new Date(startDate).getTime())) {
+    throw new CustomError("La fecha de entrada es inválida.", 400);
+  }
+
+  const archivedAt = input.archivedAt
+    ? new Date(input.archivedAt)
+    : client.archivedAt
+      ? new Date(client.archivedAt)
+      : null;
+  if (archivedAt && Number.isNaN(archivedAt.getTime())) {
+    throw new CustomError("La fecha de baja es inválida.", 400);
+  }
+
+  if (input.archivedAt && !client.isArchived) {
+    throw new CustomError(
+      "Este cliente no está dado de baja, no tiene fecha de baja que corregir.",
+      400
+    );
+  }
+
+  if (startDate && archivedAt && archivedAt < new Date(startDate)) {
+    throw new CustomError(
+      "La fecha de baja no puede ser anterior a la fecha de entrada del cliente.",
+      400
+    );
+  }
+
+  const before = {
+    startDate: client.startDate,
+    archivedAt: client.archivedAt,
+    lifetimeDays: client.lifetimeDays,
+  };
+
+  if (startDate) client.startDate = new Date(startDate);
+
+  if (archivedAt && client.isArchived) {
+    client.archivedAt = archivedAt;
+    client.endDate = archivedAt;
+    client.deactivatedAt = archivedAt;
+
+    const entry = [...client.lifecycleHistory]
+      .reverse()
+      .find((item) => item.action === "archived");
+    if (entry) entry.at = archivedAt;
+  }
+
+  const reference = client.startDate || client.createdAt;
+  if (reference && archivedAt) {
+    const durationDays = Math.max(diffInDays(new Date(reference), archivedAt), 0);
+    client.lifetimeDays = durationDays;
+    const entry = [...client.lifecycleHistory]
+      .reverse()
+      .find((item) => item.action === "archived");
+    if (entry) entry.durationDays = durationDays;
+  }
+
+  await client.save();
+
+  await AuditLog.create({
+    action: "client.lifecycleDates.update",
+    entity: "Client",
+    entityId: client._id.toString(),
+    userId: user?._id,
+    userName: user?.name,
+    meta: {
+      before,
+      after: {
+        startDate: client.startDate,
+        archivedAt: client.archivedAt,
+        lifetimeDays: client.lifetimeDays,
+      },
+    },
+  });
+
+  return { client, message: "Fechas actualizadas correctamente" };
+}
+
 export const clientLifecycleService = {
   archive,
   reactivate,
+  updateLifecycleDates,
   addLifecycleAttachments,
   purge,
   listArchived,

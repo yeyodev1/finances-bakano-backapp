@@ -12,6 +12,7 @@ import {
   clientListSchema,
   createClientSchema,
   grantAccessSchema,
+  lifecycleDatesSchema,
   linkWorkspaceSchema,
   reactivateClientSchema,
   revokeAccessSchema,
@@ -93,6 +94,13 @@ clientRouter.post(
   toHandler(uploadDocument.array("attachments", 10)),
   validate(archiveClientSchema),
   clientController.archive
+);
+clientRouter.patch(
+  "/:id/lifecycle-dates",
+  canWrite,
+  validate(idParamSchema, "params"),
+  validate(lifecycleDatesSchema),
+  clientController.updateLifecycleDates
 );
 clientRouter.post(
   "/:id/reactivate",
