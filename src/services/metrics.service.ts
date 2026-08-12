@@ -140,11 +140,21 @@ async function request<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * Métricas envuelve las respuestas: `{ message, workspaces }` en los listados y
+ * `{ message, workspace }` en el detalle y en el PATCH de estado.
+ */
 function unwrap<T>(payload: unknown): T {
-  const body = payload as { data?: unknown; workspaces?: unknown; items?: unknown };
+  const body = payload as {
+    data?: unknown;
+    workspaces?: unknown;
+    workspace?: unknown;
+    items?: unknown;
+  };
   if (body && typeof body === "object") {
     if (body.data !== undefined) return body.data as T;
     if (body.workspaces !== undefined) return body.workspaces as T;
+    if (body.workspace !== undefined) return body.workspace as T;
     if (body.items !== undefined) return body.items as T;
   }
   return payload as T;
