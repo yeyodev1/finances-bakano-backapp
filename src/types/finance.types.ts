@@ -84,6 +84,79 @@ export const INVOICE_STATUS_LABELS: Record<InvoiceStatus, string> = {
   cancelled: "Anulado",
 };
 
+// ── Ventas ───────────────────────────────────────────────────────
+// Una venta es un acuerdo cerrado hoy que se cobra más adelante: por eso vive
+// aparte de las facturas, que solo existen cuando ya hay cliente y período.
+
+/** Cadencia de los cobros pactados. `unico` ignora el número de cuotas. */
+export const SALE_FREQUENCIES = ["unico", "semanal", "quincenal", "mensual", "trimestral"] as const;
+export type SaleFrequency = (typeof SALE_FREQUENCIES)[number];
+
+export const SALE_FREQUENCY_LABELS: Record<SaleFrequency, string> = {
+  unico: "Pago único",
+  semanal: "Cada semana",
+  quincenal: "Cada quince días",
+  mensual: "Cada mes",
+  trimestral: "Cada tres meses",
+};
+
+/** Días que avanza cada cuota según la cadencia. `unico` no repite. */
+export const SALE_FREQUENCY_DAYS: Record<SaleFrequency, number> = {
+  unico: 0,
+  semanal: 7,
+  quincenal: 15,
+  mensual: 30,
+  trimestral: 90,
+};
+
+/**
+ * Cada concepto vendido. El vendedor negocia la mensualidad (400, 300, 250…) y
+ * suele sumar extras puntuales tipo "página web": si solo se guardara el total
+ * no habría forma de saber qué se ofreció ni a qué precio se cerró.
+ */
+export const SALE_ITEM_KINDS = ["recurrente", "unico"] as const;
+export type SaleItemKind = (typeof SALE_ITEM_KINDS)[number];
+
+export const SALE_ITEM_KIND_LABELS: Record<SaleItemKind, string> = {
+  recurrente: "Mensualidad / recurrente",
+  unico: "Pago único",
+};
+
+export const SALE_STATUSES = ["acordada", "cobrando", "cobrada", "perdida"] as const;
+export type SaleStatus = (typeof SALE_STATUSES)[number];
+
+export const SALE_STATUS_LABELS: Record<SaleStatus, string> = {
+  acordada: "Acordada, sin cobrar",
+  cobrando: "Cobro en curso",
+  cobrada: "Cobrada por completo",
+  perdida: "Perdida",
+};
+
+export const SALE_INSTALLMENT_STATUSES = ["pendiente", "vencida", "cobrada"] as const;
+export type SaleInstallmentStatus = (typeof SALE_INSTALLMENT_STATUSES)[number];
+
+/** Por qué una venta acordada nunca llegó a cobrarse. */
+export const SALE_LOST_REASONS = [
+  "nunca_pago",
+  "se_arrepintio",
+  "no_contesta",
+  "se_fue_competencia",
+  "precio",
+  "problema_interno",
+  "otro",
+] as const;
+export type SaleLostReason = (typeof SALE_LOST_REASONS)[number];
+
+export const SALE_LOST_REASON_LABELS: Record<SaleLostReason, string> = {
+  nunca_pago: "Nunca pagó",
+  se_arrepintio: "Se arrepintió",
+  no_contesta: "Dejó de contestar",
+  se_fue_competencia: "Se fue con la competencia",
+  precio: "Precio",
+  problema_interno: "Problema interno de Bakano",
+  otro: "Otro",
+};
+
 export interface PaginatedResult<T> {
   items: T[];
   total: number;

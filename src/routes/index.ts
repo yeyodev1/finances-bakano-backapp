@@ -4,6 +4,7 @@ import userRouter from "./user.router";
 import clientRouter from "./client.router";
 import invoiceRouter from "./invoice.router";
 import paymentRouter from "./payment.router";
+import saleRouter from "./sale.router";
 import dashboardRouter from "./dashboard.router";
 import settingsRouter from "./settings.router";
 import workspaceRouter from "./workspace.router";
@@ -19,6 +20,7 @@ function routerApi(app: Application) {
   router.use("/clients", clientRouter);
   router.use("/invoices", invoiceRouter);
   router.use("/payments", paymentRouter);
+  router.use("/sales", saleRouter);
 
   router.use("/dashboard", dashboardRouter);
   router.use("/settings", settingsRouter);
