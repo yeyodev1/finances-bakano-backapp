@@ -89,7 +89,11 @@ No se puede eliminar/desactivar al último superadministrador activo ni a tu pro
 ## Clientes (`/clients`)
 
 ```bash
-# Listar (q, paymentMethod, billingType, isActive, hasWorkspace, tag, page, limit, sort)
+# Listar (q, paymentMethod, billingType, isActive, hasWorkspace, tag, ownerId, page, limit, sort)
+#
+# `ownerId` es el RESPONSABLE DE COBRO del cliente (un usuario). Se manda también
+# al crear/actualizar; el backend cachea su nombre en `ownerName` para no resolver
+# un lookup en cada fila del listado.
 curl "http://localhost:8101/api/clients?q=anderson&isActive=true&billingType=monthly&sort=-createdAt&page=1&limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
@@ -100,6 +104,13 @@ curl http://localhost:8101/api/clients/stats -H "Authorization: Bearer $TOKEN"
 curl http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293 -H "Authorization: Bearer $TOKEN"
 
 # Crear (cobro único)
+#
+# Al dar de alta un cliente se genera automáticamente su cobro del período en
+# curso, con el mismo motor que el job mensual (respeta `startDate`,
+# `billingStartPeriod` y los cobros divididos). Sin esto, un alta a mitad de mes
+# se quedaba sin cobro hasta el mes siguiente y su primer pago no tenía contra
+# qué registrarse. Si la generación falla no tumba el alta: queda en el log y el
+# cobro se puede generar después con `POST /invoices/generate` + `clientIds`.
 curl -X POST http://localhost:8101/api/clients \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{
@@ -186,6 +197,21 @@ curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/archive 
   -F "notes=Capturas del chat donde pide cancelar" \
   -F "attachments=@/ruta/chat-whatsapp.png" \
   -F "attachments=@/ruta/correo-cancelacion.pdf"
+
+# Dar de baja con FECHA RETROACTIVA. Sin "archivedAt" se usa hoy.
+# La fecha define la antigüedad y qué cobros futuros se anulan; no puede ser
+# anterior a la fecha de entrada del cliente (400).
+curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/archive \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"fin_contrato","archivedAt":"2026-07-31"}'
+
+# Corregir las fechas del ciclo de vida (lo usa la project manager desde /bajas).
+# Acepta una o ambas. Recalcula `lifetimeDays`, `endDate`, `deactivatedAt` y la
+# entrada "archived" del historial, que se derivan de estas fechas —por eso no
+# basta con un PUT /clients/:id. Queda registrado en el audit log.
+curl -X PATCH http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/lifecycle-dates \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"startDate":"2025-03-01","archivedAt":"2026-07-31"}'
 
 # Subir respaldos extra a la última entrada del historial
 curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/attachments \
@@ -407,7 +433,122 @@ curl -X DELETE http://localhost:8101/api/payments/6713cd56ef7890123456abcd \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+```bash
+# UN SOLO PAGO que salda varios cobros del mismo cliente.
+# Caso típico: cobro dividido de 210 el día 8 y 210 el día 23, pero el cliente
+# transfiere los 420 de una. El monto se reparte del cobro MÁS VIEJO al más
+# nuevo (primero la mora) y por dentro llama a `register` factura por factura,
+# así cada una conserva su correo, su auditoría y la reactivación del workspace.
+# Falla con 400 si el monto supera el saldo abierto del cliente.
+# `invoiceIds` es opcional: sin él se reparte entre todos los cobros abiertos.
+curl -X POST http://localhost:8101/api/payments/settle \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"clientId":"6a776e2a620c78720cb9f719","amount":420,"paidAt":"2026-08-08","method":"transferencia"}'
+```
+
 Al registrar un pago: se recalcula el estado de la factura (`paid` o `partial`), se envía el correo de confirmación, se escribe un registro de auditoría y —si el cliente queda sin facturas vencidas y su workspace estaba desactivado— se reactiva el workspace en el backend de métricas.
+
+---
+
+## Ventas (`/sales`)
+
+Una **venta** es un acuerdo cerrado hoy que se cobra más adelante. Vive aparte de las facturas
+porque al cerrarse el cliente puede no existir todavía (`clientId` es opcional). El total se
+reparte en cuotas con su fecha; el sobrante del redondeo se acumula en la última para que la
+suma cuadre exacta con lo acordado.
+
+El `status` de la venta **se deriva de sus cuotas**, nunca se fija a mano:
+`acordada` (ninguna cobrada) → `cobrando` (algunas) → `cobrada` (todas). `perdida` es aparte.
+Las cuotas pendientes con fecha pasada se muestran como `vencida` (se calcula al leer, no se
+persiste).
+
+```bash
+# Listar (status, ownerId, soldBy, clientId, q, overdueOnly, from, to, page, limit)
+curl "http://localhost:8101/api/sales?status=acordada&overdueOnly=true" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Cuánto dinero debe entrar: recurrente de clientes + ventas nuevas por cobrar,
+# con el desglose por responsable de cobro.
+curl http://localhost:8101/api/sales/summary -H "Authorization: Bearer $TOKEN"
+
+# Registrar una venta. "frequency": unico | semanal | quincenal | mensual | trimestral
+# Con "unico" se ignora installmentsCount. soldBy = quién cerró, ownerId = quién cobra.
+#
+# "items" es el desglose de lo vendido: el vendedor negocia la mensualidad (400,
+# 300, 250…) y suele sumar extras puntuales. Si vienen items, el total sale de su
+# suma y "amount" se ignora. "kind": recurrente | unico — separa lo que se repite
+# cada mes de lo puntual, que es lo que el resumen reporta por separado.
+#
+# "billing" son los datos de factura. Van en la venta y no en el cliente porque
+# quien cobra casi nunca es quien vendió y necesita razón social y RUC a mano.
+curl -X POST http://localhost:8101/api/sales \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{
+    "businessName":"Panadería El Trigo",
+    "items":[
+      {"concept":"Mensualidad","kind":"recurrente","amount":400,
+       "description":"12 publicaciones al mes + reunión quincenal"},
+      {"concept":"Página web","kind":"unico","amount":500}
+    ],
+    "billing":{"needsInvoice":true,"legalName":"Panadería El Trigo S.A.",
+               "taxId":"0992345678001","email":"factura@eltrigo.ec"},
+    "frequency":"mensual",
+    "installmentsCount":3,
+    "firstChargeDate":"2026-09-05",
+    "soldBy":"665f0a1b2c3d4e5f60718293",
+    "ownerId":"665f0a1b2c3d4e5f60718294",
+    "notes":"Acordado en la reunión del 12/08"
+  }'
+
+# Cambiar los conceptos vendidos. Rehace el total y el calendario de cobros, así
+# que falla con 400 si ya hay alguna cuota cobrada.
+curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/items \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"items":[{"concept":"Mensualidad","kind":"recurrente","amount":250}]}'
+
+# Completar los datos de factura. Siempre editable, incluso con la venta cobrada:
+# el número suele cargarse después. Solo pisa los campos que mandes.
+curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/billing \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"invoiceNumber":"001-001-000000123","issuedAt":"2026-09-06"}'
+
+# Detalle (incluye cuotas e historial completo)
+curl http://localhost:8101/api/sales/6790ab12cd34ef5678901234 -H "Authorization: Bearer $TOKEN"
+
+# Registrar el cobro de una cuota (índice base 0). Sin "amount" se cobra completa.
+curl -X POST http://localhost:8101/api/sales/6790ab12cd34ef5678901234/installments/0/pay \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"amount":400,"paidAt":"2026-09-05"}'
+
+# Mover la fecha de una cuota. La original queda en `originalDueDate` y en el historial.
+curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/installments/1/reschedule \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"newDueDate":"2026-10-20","reason":"Pidió dos semanas más"}'
+
+# Reasignar quién debe cobrarla
+curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/owner \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"ownerId":"665f0a1b2c3d4e5f60718295"}'
+
+# Dar por perdida. El motivo es obligatorio; falla con 400 si ya tiene cobros registrados.
+# Valores: nunca_pago | se_arrepintio | no_contesta | se_fue_competencia | precio |
+#          problema_interno | otro
+curl -X POST http://localhost:8101/api/sales/6790ab12cd34ef5678901234/lose \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reason":"nunca_pago","notes":"Tres meses sin responder"}'
+
+# Reabrir una venta perdida
+curl -X POST http://localhost:8101/api/sales/6790ab12cd34ef5678901234/reopen \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`GET /sales/summary` devuelve, dentro de `newSales`: `recurringSold` y `oneOffSold` (lo vendido
+separado por naturaleza) y `missingInvoice` (cuántas ventas piden factura y siguen sin número).
+
+Cada mutación deja entrada en el `history` embebido de la venta **y** en el `AuditLog`
+(`sale.create`, `sale.installment.paid`, `sale.installment.reschedule`, `sale.owner.change`,
+`sale.items.update`, `sale.billing.update`, `sale.lost`). Escribir requiere rol `admin` o
+`superadmin`; leer basta con estar autenticado.
 
 ---
 
@@ -444,6 +585,23 @@ curl "http://localhost:8101/api/dashboard/aging" \
 
 # Cobros próximos: facturas pending/partial con dueDate dentro de N días (default 15)
 curl "http://localhost:8101/api/dashboard/upcoming?days=15" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Pronóstico semanal de lo que DEBE entrar (weeks 1-26, default 8).
+# Mezcla las dos fuentes de cobro en los mismos tramos: saldo abierto de las
+# facturas (amount - paidAmount) y cuotas sin cobrar de las ventas. Semanas de
+# lunes a domingo. Lo vencido NO se mete en ninguna semana: va aparte en
+# `overdue`, con su antigüedad en tramos y separado por fuente. Lo que vence más
+# allá del horizonte se deja fuera en vez de amontonarlo en la última semana.
+curl "http://localhost:8101/api/dashboard/cashflow?weeks=8" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Cobrado REAL por semana hacia atrás (weeks 1-26, default 6), separando:
+#   newBusiness -> pagos de clientes con menos de un mes + cuotas de ventas
+#   recurring   -> pagos de clientes con MÁS de un mes desde su startDate
+# La antigüedad se evalúa contra la fecha del cobro, no contra hoy, para que una
+# semana pasada no se reclasifique sola con el tiempo.
+curl "http://localhost:8101/api/dashboard/collected?weeks=6" \
   -H "Authorization: Bearer $TOKEN"
 
 # Listado de facturas vencidas con datos del cliente y días de mora (limit default 50)
