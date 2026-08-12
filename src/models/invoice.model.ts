@@ -57,6 +57,24 @@ export interface IInvoice extends Document {
   deactivation: IInvoiceDeactivation;
 
   workspaceId?: string | null;
+  /**
+   * Factura electrónica emitida por este cobro. Va aparte del pago a propósito:
+   * a veces se factura antes de que entre la transferencia, y a veces se cobra
+   * sin factura. Que exista `einvoice` no dice nada sobre si ya pagaron.
+   */
+  einvoice?: {
+    datilId?: string;
+    estado?: string;
+    secuencial?: string;
+    numero?: string;
+    claveAcceso?: string;
+    urlPdf?: string;
+    urlXml?: string;
+    ambiente?: number;
+    emitidaAt?: Date | null;
+    /** Último error de Dátil, para poder reintentar sabiendo qué falló. */
+    error?: string;
+  };
   createdBy?: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -119,6 +137,18 @@ const invoiceSchema = new Schema<IInvoice>(
     deactivation: { type: deactivationSchema, default: () => ({}) },
 
     workspaceId: { type: String, default: null },
+    einvoice: {
+      datilId: { type: String, index: true, sparse: true },
+      estado: { type: String },
+      secuencial: { type: String },
+      numero: { type: String },
+      claveAcceso: { type: String },
+      urlPdf: { type: String },
+      urlXml: { type: String },
+      ambiente: { type: Number },
+      emitidaAt: { type: Date, default: null },
+      error: { type: String },
+    },
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
   },
   { timestamps: true, versionKey: false }

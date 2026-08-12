@@ -1,5 +1,6 @@
 import { Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler.util";
+import { invoiceBillingService } from "../services/invoice.billing.service";
 import {
   CreateAdvanceInvoiceInput,
   DeferInvoiceInput,
@@ -55,6 +56,22 @@ export const defer = asyncHandler(async (req: AuthRequest, res: Response) => {
 
 export const undoDefer = asyncHandler(async (req: AuthRequest, res: Response) => {
   res.status(200).json(await invoiceService.removeLastDeferral(param(req, "id"), req.user));
+});
+
+/** Emite la factura electrónica del cobro. No cambia su estado de pago. */
+export const issueEInvoice = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(201).json(await invoiceBillingService.issueForInvoice(param(req, "id"), req.user));
+});
+
+/** Refresca el estado ante el SRI: pasar a AUTORIZADO puede tardar. */
+export const refreshEInvoice = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.status(200).json(await invoiceBillingService.refreshStatus(param(req, "id")));
+});
+
+/** Resumen de facturación, incluidos los descuadres factura/cobro. */
+export const billingSummary = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  res.status(200).json(await invoiceBillingService.summary(period));
 });
 
 export const createAdvance = asyncHandler(async (req: AuthRequest, res: Response) => {

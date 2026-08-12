@@ -90,6 +90,22 @@ export interface IClient extends Document {
   /** Quién persigue el cobro de este cliente. Sin esto no se puede repartir la cobranza. */
   ownerId?: mongoose.Types.ObjectId | null;
   ownerName?: string;
+  /**
+   * Datos tributarios para la factura electrónica. Van aquí y no en cada cobro
+   * porque son del cliente: el SRI exige identificación y razón social reales,
+   * no el nombre comercial con el que lo llamamos internamente.
+   */
+  billing?: {
+    taxId?: string;
+    /** Código SRI: 04 RUC, 05 cédula, 06 pasaporte, 07 consumidor final. */
+    idType?: string;
+    razonSocial?: string;
+    email?: string;
+    direccion?: string;
+    telefono?: string;
+    /** "0" o "15". Por defecto 15, que es la tarifa vigente. */
+    iva?: string;
+  };
   workspaceLinkedAt?: Date;
   /** Imagen del espacio traída de métricas (logo del cliente o foto de su página). */
   workspaceImageUrl?: string | null;
@@ -225,6 +241,15 @@ const clientSchema = new Schema<IClient>(
     workspaceName: { type: String, default: null },
     ownerId: { type: Schema.Types.ObjectId, ref: "User", default: null, index: true },
     ownerName: { type: String, default: null },
+    billing: {
+      taxId: { type: String, trim: true },
+      idType: { type: String, enum: ["04", "05", "06", "07", "08"], default: "04" },
+      razonSocial: { type: String, trim: true },
+      email: { type: String, trim: true, lowercase: true },
+      direccion: { type: String, trim: true },
+      telefono: { type: String, trim: true },
+      iva: { type: String, enum: ["0", "15"], default: "15" },
+    },
     workspaceLinkedAt: { type: Date, default: null },
     workspaceImageUrl: { type: String, default: null },
     accessOverride: { type: accessOverrideSchema, default: () => ({ enabled: false }) },

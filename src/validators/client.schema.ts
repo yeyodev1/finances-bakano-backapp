@@ -44,6 +44,18 @@ export const createClientSchema = z.object({
   isActive: z.boolean().optional(),
   /** Usuario que persigue el cobro de este cliente. */
   ownerId: objectIdSchema.nullable().optional(),
+  /** Datos tributarios para la factura electrónica (Dátil → SRI). */
+  billing: z
+    .object({
+      taxId: z.string().trim().min(5).max(20).optional().or(z.literal("")),
+      idType: z.enum(["04", "05", "06", "07", "08"]).optional(),
+      razonSocial: z.string().trim().max(300).optional(),
+      email: z.string().trim().email("Correo de facturación inválido").optional().or(z.literal("")),
+      direccion: z.string().trim().max(300).optional(),
+      telefono: z.string().trim().max(40).optional(),
+      iva: z.enum(["0", "15"]).optional(),
+    })
+    .optional(),
   startDate: dateSchema.optional(),
   endDate: dateSchema.nullable().optional(),
   stripeCustomerId: z.string().trim().optional(),

@@ -450,6 +450,62 @@ Al registrar un pago: se recalcula el estado de la factura (`paid` o `partial`),
 
 ---
 
+## Facturación electrónica (Dátil → SRI)
+
+La factura y el cobro son **independientes**: se factura cuando el cliente lo pide, que puede ser
+antes de que entre la transferencia; y se puede cobrar sin facturar. Emitir NO marca el cobro como
+pagado, y registrar un pago NO emite factura.
+
+La forma de pago siempre se envía como `transferencia`, que Dátil traduce al código SRI `20`.
+El monto del cobro se toma como **IVA incluido**: la base y el impuesto se desglosan hacia atrás
+para que `base + IVA` cuadre exacto con lo que paga el cliente.
+
+**Emitir es irreversible en producción** (`DATIL_AMBIENTE=2`): un comprobante autorizado solo se
+deshace con nota de crédito. Por eso el ambiente arranca en pruebas (`1`).
+
+```bash
+# Emitir la factura de un cobro. Requiere que el cliente tenga RUC/cédula en su
+# ficha (`billing.taxId` + `billing.idType`); si falta, responde 400 diciéndolo.
+# Usa el id del cobro como clave de idempotencia: un reintento por timeout
+# devuelve la misma factura en vez de duplicarla ante el SRI.
+curl -X POST http://localhost:8101/api/invoices/6713cd56ef7890123456abcd/einvoice \
+  -H "Authorization: Bearer $TOKEN"
+
+# Refrescar el estado: el SRI tarda en pasar de RECIBIDO a AUTORIZADO
+curl -X POST http://localhost:8101/api/invoices/6713cd56ef7890123456abcd/einvoice/refresh \
+  -H "Authorization: Bearer $TOKEN"
+
+# Resumen para el tablero. Devuelve los dos descuadres que hay que perseguir:
+#   facturadoSinCobrar  -> se emitió factura pero el dinero no ha entrado
+#   cobradoSinFacturar  -> entró el dinero y nunca se facturó
+# Más `configurada`, `ambiente` y `faltaConfigurar` con las variables que falten.
+curl "http://localhost:8101/api/invoices/billing-summary?period=2026-08" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Configuración (`.env` del backend)
+
+| Variable | Para qué |
+| --- | --- |
+| `DATIL_API_KEY` | Clave del API. En app.datil.co → Configuración → API Key |
+| `DATIL_CERT_PASSWORD` | Clave del certificado de firma electrónica. Solo necesaria para emitir |
+| `DATIL_AMBIENTE` | `1` pruebas (por defecto), `2` producción |
+| `DATIL_RUC` | RUC de Bakano, 13 dígitos |
+| `DATIL_RAZON_SOCIAL` | Razón social tal como está en el SRI |
+| `DATIL_NOMBRE_COMERCIAL` | Nombre comercial. Por defecto `Bakano` |
+| `DATIL_DIRECCION` | Dirección matriz |
+| `DATIL_ESTABLECIMIENTO` | Código de establecimiento. Por defecto `001` |
+| `DATIL_PUNTO_EMISION` | Punto de emisión. Por defecto `001` |
+| `DATIL_OBLIGADO_CONTABILIDAD` | `true` o `false` |
+| `DATIL_CONTRIBUYENTE_ESPECIAL` | Número de resolución, si aplica |
+
+Sin `DATIL_API_KEY` la integración se apaga sola y el resto de la app sigue igual.
+
+Cada cliente necesita además sus datos tributarios en `billing` (`taxId`, `idType`, `razonSocial`,
+`email`, `direccion`, `iva`). `idType`: `04` RUC, `05` cédula, `06` pasaporte, `07` consumidor final.
+
+---
+
 ## Ventas (`/sales`)
 
 Una **venta** es un acuerdo cerrado hoy que se cobra más adelante. Vive aparte de las facturas
