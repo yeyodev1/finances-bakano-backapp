@@ -48,6 +48,8 @@ export const ARCHIVE_REASONS = [
   "pausa_temporal",
   "fin_contrato",
   "decision_bakano",
+  "reembolso",
+  "garantia_fallida",
   "otro",
 ] as const;
 export type ArchiveReason = (typeof ARCHIVE_REASONS)[number];
@@ -62,8 +64,67 @@ export const ARCHIVE_REASON_LABELS: Record<ArchiveReason, string> = {
   pausa_temporal: "Pausa temporal",
   fin_contrato: "Fin de contrato",
   decision_bakano: "Decisión de Bakano",
+  reembolso: "Se le devolvió el dinero",
+  garantia_fallida: "Garantía agotada sin resultados",
   otro: "Otro",
 };
+
+// ── Reembolsos ───────────────────────────────────────────────────
+// Plata que ya entró y vuelve a salir. No se toca el pago original ni el estado
+// de la factura: el cobro existió. El reembolso es un asiento aparte que se resta.
+
+export const REFUND_REASONS = [
+  "garantia",
+  "sin_resultados",
+  "servicio_no_prestado",
+  "cobro_duplicado",
+  "error_de_cobro",
+  "acuerdo_comercial",
+  "otro",
+] as const;
+export type RefundReason = (typeof REFUND_REASONS)[number];
+
+export const REFUND_REASON_LABELS: Record<RefundReason, string> = {
+  garantia: "Garantía: no hubo resultados",
+  sin_resultados: "Sin resultados",
+  servicio_no_prestado: "Servicio no prestado",
+  cobro_duplicado: "Cobro duplicado",
+  error_de_cobro: "Error en el cobro",
+  acuerdo_comercial: "Acuerdo comercial",
+  otro: "Otro",
+};
+
+// ── Garantía ─────────────────────────────────────────────────────
+// Bakano es agencia: si un cliente antiguo no vio resultados, se le regala el mes
+// siguiente. Si aparecen resultados se vuelve a cobrar; si no, se estira un segundo
+// mes. Agotados los dos meses sin cambio, la garantía se marca como fracaso.
+
+export const GUARANTEE_STATUSES = [
+  "abierta",
+  "extendida",
+  "cumplida",
+  "fallida",
+  "cancelada",
+] as const;
+export type GuaranteeStatus = (typeof GUARANTEE_STATUSES)[number];
+
+export const GUARANTEE_STATUS_LABELS: Record<GuaranteeStatus, string> = {
+  abierta: "Primer mes de garantía",
+  extendida: "Segundo mes de garantía",
+  cumplida: "Hubo resultados: vuelve a cobrarse",
+  fallida: "Fracaso: sin resultados en dos meses",
+  cancelada: "Garantía cancelada",
+};
+
+/** Garantías todavía corriendo: el cliente no paga y el reloj avanza. */
+export const GUARANTEE_OPEN_STATUSES: GuaranteeStatus[] = ["abierta", "extendida"];
+
+/** Tope de meses regalados por política. Al superarlo se marca fracaso. */
+export const GUARANTEE_MAX_CYCLES = 2;
+
+/** Cómo termina una garantía. `cancelada` es la salida administrativa (se abrió por error). */
+export const GUARANTEE_OUTCOMES = ["cumplida", "fallida", "cancelada"] as const;
+export type GuaranteeOutcome = (typeof GUARANTEE_OUTCOMES)[number];
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   transferencia: "Transferencia",

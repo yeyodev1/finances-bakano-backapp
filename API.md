@@ -185,7 +185,10 @@ curl "http://localhost:8101/api/clients/archived?limit=100" -H "Authorization: B
 
 # Dar de baja SIN adjuntos (JSON). "reason" es obligatorio.
 # Valores: impago | cancelacion_cliente | cierre_negocio | competencia | precio |
-#          insatisfaccion_resultados | pausa_temporal | fin_contrato | decision_bakano | otro
+#          insatisfaccion_resultados | pausa_temporal | fin_contrato | decision_bakano |
+#          reembolso | garantia_fallida | otro
+# `reembolso` y `garantia_fallida` los pone el propio backend al devolver dinero o
+# al cerrar una garantía como fracaso; también se pueden elegir a mano.
 curl -X POST http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293/archive \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"reason":"impago","notes":"Tres meses sin pagar, no responde WhatsApp"}'
@@ -447,6 +450,126 @@ curl -X POST http://localhost:8101/api/payments/settle \
 ```
 
 Al registrar un pago: se recalcula el estado de la factura (`paid` o `partial`), se envía el correo de confirmación, se escribe un registro de auditoría y —si el cliente queda sin facturas vencidas y su workspace estaba desactivado— se reactiva el workspace en el backend de métricas.
+
+---
+
+## Reembolsos (`/refunds`)
+
+Plata que ya entró y vuelve a salir.
+
+**El pago original nunca se toca.** Si se editara el `Payment`, la caja del mes en que entró el
+dinero cambiaría hacia atrás y el histórico dejaría de cuadrar con el banco. El reembolso es un
+asiento nuevo, con su propia fecha, en su propia colección. La factura solo acumula
+`refundedAmount`: su `status` sigue siendo `paid`, y el neto del período es
+`paidAmount - refundedAmount`.
+
+```bash
+# Listar (clientId, period, reason, from, to, page, limit)
+curl "http://localhost:8101/api/refunds?period=2026-08" -H "Authorization: Bearer $TOKEN"
+
+# Totales: cuánto se devolvió, cuánto este mes y por qué motivo
+curl http://localhost:8101/api/refunds/summary -H "Authorization: Bearer $TOKEN"
+
+# Reembolsos de un cliente
+curl http://localhost:8101/api/refunds/client/6a776e2a620c78720cb9f719 \
+  -H "Authorization: Bearer $TOKEN"
+
+# Registrar. Manda "paymentId" o "invoiceId"; con el pago salen solos factura,
+# cliente y período. Falla con 400 si el monto supera lo cobrado menos lo ya devuelto.
+# "reason": garantia | sin_resultados | servicio_no_prestado | cobro_duplicado |
+#           error_de_cobro | acuerdo_comercial | otro
+curl -X POST http://localhost:8101/api/refunds \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"paymentId":"6713cd56ef7890123456abcd","amount":400,"reason":"sin_resultados","refundedAt":"2026-08-14"}'
+
+# Devolver Y dar de baja en el mismo paso: el cliente queda archivado con
+# motivo "reembolso". La baja va DESPUÉS de guardar el asiento: si archivar
+# falla, la devolución ya quedó registrada en vez de perderse.
+curl -X POST http://localhost:8101/api/refunds \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"invoiceId":"6713aa11ef7890123456abcd","amount":400,"reason":"garantia","archiveClient":true}'
+
+# Con comprobante (multipart, campo "receipt", imagen o PDF de 10 MB)
+curl -X POST http://localhost:8101/api/refunds \
+  -H "Authorization: Bearer $TOKEN" \
+  -F paymentId=6713cd56ef7890123456abcd -F amount=400 -F reason=acuerdo_comercial \
+  -F receipt=@/ruta/transferencia.pdf
+
+# Detalle
+curl http://localhost:8101/api/refunds/6713ff99ef7890123456abcd -H "Authorization: Bearer $TOKEN"
+
+# Eliminar (descuenta el refundedAmount de la factura y borra el comprobante) — solo superadmin.
+# La baja que haya disparado NO se revierte: se reactiva a mano desde la ficha.
+curl -X DELETE http://localhost:8101/api/refunds/6713ff99ef7890123456abcd \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## Garantías (`/guarantees`)
+
+Bakano es agencia y cobra por resultados. Si un cliente antiguo no los vio, se le regala el mes
+siguiente: **arranca sin pagarnos**. Si aparecen resultados vuelve a cobrarse (`cumplida`); si no,
+la política estira **un segundo mes** (`extendida`). Agotado el tope de dos, la garantía se cierra
+como `fallida` — el fracaso — y por defecto da de baja al cliente con motivo `garantia_fallida`.
+
+El mes regalado **no se borra de la facturación**: el cobro se emite igual, en estado `waived` y
+marcado con `isGuarantee`, para que el monto que se está regalando siga a la vista. Es el costo
+real de la política. La generación mensual consulta la garantía abierta y crea así los cobros de
+los períodos cubiertos.
+
+Estados: `abierta` (mes 1) · `extendida` (mes 2) · `cumplida` · `fallida` · `cancelada`.
+
+```bash
+# Listar (clientId, status, open, page, limit)
+curl "http://localhost:8101/api/guarantees?open=true" -H "Authorization: Bearer $TOKEN"
+
+# Totales: en curso, recuperados, fracasos, regalado y % de recuperación
+curl http://localhost:8101/api/guarantees/summary -H "Authorization: Bearer $TOKEN"
+
+# Abrir. "period" es el mes que se regala (por defecto, el siguiente al actual) y
+# "triggerPeriod" el que salió sin resultados (por defecto, el actual).
+# Falla con 409 si el cliente ya tiene una garantía en curso.
+curl -X POST http://localhost:8101/api/guarantees \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"clientId":"6a776e2a620c78720cb9f719","period":"2026-09","triggerPeriod":"2026-08","reason":"No subieron las ventas prometidas"}'
+
+# Extender al segundo mes. Falla con 400 si ya se usaron los dos que permite la política.
+curl -X POST http://localhost:8101/api/guarantees/6713bb22ef7890123456abcd/extend \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"period":"2026-10","resultNotes":"Subió el tráfico pero no las ventas"}'
+
+# Cerrar BIEN: hubo resultados, vuelve a facturarse con normalidad
+curl -X POST http://localhost:8101/api/guarantees/6713bb22ef7890123456abcd/close \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"outcome":"cumplida","notes":"Duplicó pedidos en octubre"}'
+
+# Cerrar como FRACASO. Por defecto archiva al cliente (archiveClient:false lo evita).
+curl -X POST http://localhost:8101/api/guarantees/6713bb22ef7890123456abcd/close \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"outcome":"fallida","notes":"Dos meses sin mover la aguja"}'
+
+# Fracaso CON devolución: crea el reembolso y archiva, todo en una llamada
+curl -X POST http://localhost:8101/api/guarantees/6713bb22ef7890123456abcd/close \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"outcome":"fallida","refund":{"invoiceId":"6713aa11ef7890123456abcd","amount":400,"reason":"garantia"}}'
+
+# Cancelar: se abrió por error. Los meses condonados vuelven a `pending`.
+curl -X POST http://localhost:8101/api/guarantees/6713bb22ef7890123456abcd/close \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"outcome":"cancelada","notes":"Era otro cliente"}'
+
+# Historial de un cliente + la garantía vigente
+curl http://localhost:8101/api/guarantees/client/6a776e2a620c78720cb9f719 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+El cliente lleva una copia del estado vigente en `client.guarantee` (`status`, `cycle`, `period`)
+para poder pintar la lista de 58 clientes sin una consulta por fila. La verdad vive en
+`/guarantees`; esa copia es caché y se reescribe en cada apertura, extensión y cierre.
+
+`GET /dashboard/churn` devuelve además de las bajas los bloques `guarantees` y `refunds` con
+estos mismos totales: antes de perder a un cliente está lo que se invirtió en retenerlo.
 
 ---
 

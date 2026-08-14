@@ -4,6 +4,8 @@ import {
   MONTHLY_AMOUNT_EXPR,
   clientLifecycleService,
 } from "./client.lifecycle.service";
+import { guaranteeService } from "./guarantee.service";
+import { refundService } from "./refund.service";
 
 export interface ChurnReasonRow {
   reason: ArchiveReason | "sin_motivo";
@@ -84,17 +86,24 @@ async function totals(): Promise<ChurnTotals> {
   };
 }
 
-/** Reporte de bajas: por qué se van los clientes y cuánto ingreso mensual se perdió. */
+/**
+ * Reporte de bajas: por qué se van los clientes y cuánto ingreso mensual se perdió.
+ * Incluye lo que Bakano invierte en retenerlos —garantías— y lo que devuelve.
+ */
 export async function churnReport() {
-  const [reasons, resume, recent] = await Promise.all([
+  const [reasons, resume, recent, guarantees, refunds] = await Promise.all([
     byReason(),
     totals(),
     clientLifecycleService.listArchived(20),
+    guaranteeService.summary(),
+    refundService.summary(),
   ]);
 
   return {
     byReason: reasons,
     totals: resume,
+    guarantees,
+    refunds,
     recent: recent.map((item) => ({
       clientId: item._id,
       name: item.name,
