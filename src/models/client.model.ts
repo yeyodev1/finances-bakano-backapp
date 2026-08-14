@@ -4,6 +4,8 @@ import {
   ArchiveReason,
   BILLING_TYPES,
   BillingType,
+  GUARANTEE_STATUSES,
+  GuaranteeStatus,
   PAYMENT_METHODS,
   PaymentMethod,
 } from "../types/finance.types";
@@ -39,6 +41,21 @@ export interface IAccessOverride {
   until?: Date | null;
   revokedAt?: Date | null;
   revokedByName?: string;
+}
+
+/**
+ * Foto de la garantía vigente sobre el cliente. Es caché: la verdad vive en la
+ * colección `Guarantee`. Se copia acá para poder pintar el estado en listas de 58
+ * clientes sin una consulta por fila.
+ */
+export interface IClientGuarantee {
+  status?: GuaranteeStatus | null;
+  guaranteeId?: mongoose.Types.ObjectId | null;
+  /** Mes de garantía en curso: 0 = ninguno, 1 = primero, 2 = extensión. */
+  cycle: number;
+  /** Período "YYYY-MM" que ahora mismo no se cobra. */
+  period?: string | null;
+  since?: Date | null;
 }
 
 /** Cada entrada del ciclo de vida: baja o reactivación. */
@@ -135,6 +152,9 @@ export interface IClient extends Document {
   /** Historial completo de bajas y reactivaciones. */
   lifecycleHistory: IClientLifecycleEntry[];
 
+  /** Garantía vigente (caché de la colección `Guarantee`). */
+  guarantee: IClientGuarantee;
+
   stripeCustomerId?: string;
   stripeSubscriptionId?: string;
 
@@ -189,6 +209,17 @@ const lifecycleSchema = new Schema<IClientLifecycleEntry>(
     at: { type: Date, default: () => new Date() },
     by: { type: Schema.Types.ObjectId, ref: "User" },
     byName: { type: String },
+  },
+  { _id: false }
+);
+
+const clientGuaranteeSchema = new Schema<IClientGuarantee>(
+  {
+    status: { type: String, enum: [...GUARANTEE_STATUSES, null], default: null },
+    guaranteeId: { type: Schema.Types.ObjectId, ref: "Guarantee", default: null },
+    cycle: { type: Number, default: 0, min: 0 },
+    period: { type: String, default: null },
+    since: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -255,6 +286,7 @@ const clientSchema = new Schema<IClient>(
     lifetimeDays: { type: Number, default: null },
     lifetimeRevenue: { type: Number, default: null },
     lifecycleHistory: { type: [lifecycleSchema], default: [] },
+    guarantee: { type: clientGuaranteeSchema, default: () => ({ cycle: 0 }) },
 
     stripeCustomerId: { type: String, default: null },
     stripeSubscriptionId: { type: String, default: null },
