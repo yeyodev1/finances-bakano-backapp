@@ -10,6 +10,7 @@ import {
   lastWeekdayOfPeriod,
   parsePeriod,
   periodRange,
+  startOfDay,
   toPeriod,
 } from "../utils/date.util";
 import { normalizeText } from "../utils/similarity.util";
@@ -117,10 +118,22 @@ async function generateForPeriod(period: string, opts: GenerateOptions = {}) {
       });
 
       if (existing) {
+        // Un cobro anulado por monto equivocado bloqueaba el período: el slot
+        // (período, splitIndex) ya existe y el generador lo saltaba, así que el
+        // cobro corregido nunca aparecía y su pago no se podía registrar. Si la
+        // configuración trae OTRO monto, la anulación era por el monto y revive;
+        // si el monto es el mismo, la anulación fue deliberada y se respeta.
+        const revivable =
+          Boolean(opts.force) &&
+          existing.status === "cancelled" &&
+          !existing.isAdvance &&
+          existing.paidAmount <= 0 &&
+          existing.amount !== entry.amount;
+
         // Un cobro anticipado ya acordado manualmente nunca se pisa desde el generador.
         const isLocked =
           existing.isAdvance ||
-          !OPEN_STATUSES.includes(existing.status) ||
+          (!OPEN_STATUSES.includes(existing.status) && !revivable) ||
           existing.paidAmount > 0;
         if (isLocked || !opts.force) {
           skipped += 1;
@@ -133,6 +146,10 @@ async function generateForPeriod(period: string, opts: GenerateOptions = {}) {
         existing.dueDate = dueDate;
         existing.clientName = client.name;
         existing.workspaceId = client.workspaceId || null;
+        if (revivable) {
+          existing.status = dueDate < startOfDay(new Date()) ? "overdue" : "pending";
+          existing.notes = undefined;
+        }
         await existing.save();
         updated += 1;
         continue;

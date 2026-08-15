@@ -218,8 +218,31 @@ async function update(id: string, input: Partial<IClient>) {
 
   await resolveOwnerName(input);
   await resolveCategoryName(input);
+
+  const touchesBilling =
+    input.amount !== undefined || input.splits !== undefined || input.collectionDay !== undefined;
+
   client.set(input);
   await client.save();
+
+  // Si cambió el monto, los cobros divididos o el día de cobro, los cobros abiertos
+  // del período en curso se regeneran con el valor nuevo; si no, la factura queda
+  // con el monto viejo y el pago correspondiente no se puede registrar.
+  if (touchesBilling) {
+    try {
+      await invoiceGenerationService.generateForPeriod(toPeriod(), {
+        clientIds: [client._id.toString()],
+        force: true,
+      });
+    } catch (error) {
+      // Nunca tumbar la edición por esto: el cobro se puede regenerar después a mano.
+      console.error(
+        `[clients] No se pudo sincronizar los cobros de ${client.name}:`,
+        (error as Error).message
+      );
+    }
+  }
+
   return client;
 }
 
