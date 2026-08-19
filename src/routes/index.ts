@@ -13,6 +13,7 @@ import workspaceRouter from "./workspace.router";
 import mercuryRouter from "./mercury.router";
 import stripeRouter from "./stripe.router";
 import paymentSubmissionRouter from "./paymentSubmission.router";
+import crmConsumptionRouter from "./crmConsumption.router";
 import portalRouter from "./portal.router";
 import cronRouter from "./cron.router";
 
@@ -35,6 +36,7 @@ function routerApi(app: Application) {
   router.use("/mercury", mercuryRouter);
   router.use("/stripe", stripeRouter);
   router.use("/payment-submissions", paymentSubmissionRouter);
+  router.use("/crm-consumption", crmConsumptionRouter);
   router.use("/portal", portalRouter);
   router.use("/cron", cronRouter);
 }

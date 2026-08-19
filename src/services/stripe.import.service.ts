@@ -2,6 +2,7 @@ import { AuditLog, Client, Invoice, Payment } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { JwtPayload } from "../types/AuthRequest";
 import { nameSimilarity } from "../utils/similarity.util";
+import { crmConsumptionService } from "./crmConsumption.service";
 import { paymentService } from "./payment.service";
 import { stripeService, StripeChargeSummary } from "./stripe.service";
 
@@ -157,7 +158,7 @@ async function importCharges(clientId: string, user?: JwtPayload) {
 
   const imported: Array<{ stripeChargeId: string; amount: number; period: string }> = [];
   const skipped: Array<{ stripeChargeId: string; reason: string }> = [];
-  const unmatched: Array<{ stripeChargeId: string; amount: number; paidAt: Date; reason: string }> = [];
+  const crmSaved: Array<{ stripeChargeId: string; amount: number; paidAt: Date; description?: string }> = [];
 
   for (const charge of charges) {
     const exists = await Payment.findOne({ stripeChargeId: charge.stripeChargeId });
@@ -168,12 +169,30 @@ async function importCharges(clientId: string, user?: JwtPayload) {
 
     const invoice = await findInvoiceForCharge(client._id, charge);
     if (!invoice) {
-      unmatched.push({
+      // Sin factura que calce: es consumo del CRM (GoHighLevel). Se guarda en su
+      // propia sección; desde ahí se puede reclasificar a factura si hizo falta.
+      const saved = await crmConsumptionService.record({
+        clientId: client._id,
+        clientName: client.name,
+        stripeCustomerId: client.stripeCustomerId,
         stripeChargeId: charge.stripeChargeId,
         amount: charge.amount,
+        currency: charge.currency,
         paidAt: charge.paidAt,
-        reason: "Sin factura abierta que calce por período o monto",
+        description: charge.description,
+        receiptUrl: charge.receiptUrl,
+        source: "stripe_import",
       });
+      if (saved.created) {
+        crmSaved.push({
+          stripeChargeId: charge.stripeChargeId,
+          amount: charge.amount,
+          paidAt: charge.paidAt,
+          description: charge.description,
+        });
+      } else {
+        skipped.push({ stripeChargeId: charge.stripeChargeId, reason: "Ya estaba en consumo CRM" });
+      }
       continue;
     }
 
@@ -210,7 +229,7 @@ async function importCharges(clientId: string, user?: JwtPayload) {
       profiles: profileIds,
       imported: imported.length,
       skipped: skipped.length,
-      unmatched: unmatched.length,
+      crmSaved: crmSaved.length,
     },
   });
 
@@ -220,8 +239,8 @@ async function importCharges(clientId: string, user?: JwtPayload) {
     totalCharges: charges.length,
     imported,
     skipped,
-    unmatched,
-    message: `${imported.length} cargo(s) importados, ${skipped.length} ya existían, ${unmatched.length} sin factura`,
+    crmSaved,
+    message: `${imported.length} cargo(s) importados, ${skipped.length} ya existían, ${crmSaved.length} guardados como consumo CRM`,
   };
 }
 
