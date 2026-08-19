@@ -1,4 +1,4 @@
-import { Client, Invoice, Payment } from "../models";
+import { Client, CrmConsumption, Invoice, Payment } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { periodLabelEs } from "../utils/date.util";
 import { paymentSubmissionService } from "./paymentSubmission.service";
@@ -22,7 +22,7 @@ async function getClientForWorkspace(workspaceId: string) {
 async function getBilling(workspaceId: string) {
   const client = await getClientForWorkspace(workspaceId);
 
-  const [invoices, payments, submissions] = await Promise.all([
+  const [invoices, payments, submissions, crmItems] = await Promise.all([
     Invoice.find({ clientId: client._id, status: { $ne: "cancelled" } })
       .sort({ period: -1, splitIndex: 1 })
       .limit(36)
@@ -32,7 +32,33 @@ async function getBilling(workspaceId: string) {
       .limit(50)
       .select("amount currency paidAt method reference receiptUrl grossAmount feeAmount source period"),
     paymentSubmissionService.listByWorkspace(workspaceId),
+    CrmConsumption.find({ clientId: client._id })
+      .sort({ paidAt: -1 })
+      .limit(100)
+      .select("amount currency paidAt description stripeChargeId"),
   ]);
+
+  // Consumo del CRM (GoHighLevel) acumulado por mes, para que el cliente vea
+  // claro qué está consumiendo. Son cargos ya cobrados por Stripe.
+  const byMonth = new Map<string, { period: string; total: number; count: number }>();
+  for (const item of crmItems) {
+    const period = `${item.paidAt.getFullYear()}-${String(item.paidAt.getMonth() + 1).padStart(2, "0")}`;
+    const bucket = byMonth.get(period) || { period, total: 0, count: 0 };
+    bucket.total = Number((bucket.total + item.amount).toFixed(2));
+    bucket.count += 1;
+    byMonth.set(period, bucket);
+  }
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const crmConsumption = {
+    items: crmItems,
+    totals: {
+      total: Number(crmItems.reduce((acc, i) => acc + i.amount, 0).toFixed(2)),
+      currentMonth: byMonth.get(currentPeriod)?.total || 0,
+      byMonth: [...byMonth.values()].sort((a, b) => b.period.localeCompare(a.period)),
+    },
+  };
 
   const open = invoices.filter((inv) => OPEN_STATUSES.includes(inv.status));
   const pendingBalance = Number(
@@ -51,6 +77,7 @@ async function getBilling(workspaceId: string) {
     invoices,
     payments,
     submissions,
+    crmConsumption,
   };
 }
 

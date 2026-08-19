@@ -3,6 +3,7 @@ import { AuditLog, Client, Invoice, Payment, StripeEvent } from "../models";
 import { StripeEventOutcome } from "../models/stripeEvent.model";
 import { paymentService } from "./payment.service";
 import { stripeService } from "./stripe.service";
+import { crmConsumptionService } from "./crmConsumption.service";
 
 const OPEN_STATUSES = ["pending", "partial", "overdue"];
 
@@ -14,6 +15,8 @@ interface ChargeContext {
   amount: number;
   currency: string;
   paidAt: Date;
+  description?: string;
+  receiptUrl?: string;
 }
 
 /**
@@ -73,6 +76,8 @@ function contextFromCharge(charge: Stripe.Charge): ChargeContext | null {
     amount: charge.amount / 100,
     currency: charge.currency.toUpperCase(),
     paidAt: new Date(charge.created * 1000),
+    description: charge.description || undefined,
+    receiptUrl: charge.receipt_url || undefined,
   };
 }
 
@@ -139,11 +144,34 @@ async function applyCharge(event: Stripe.Event, ctx: ChargeContext) {
   }
 
   if (!invoice) {
+    // Cliente vinculado sin cobro abierto: es consumo del CRM (GoHighLevel),
+    // no una mensualidad. Se guarda igual para que ese dinero quede a la vista;
+    // si resultó ser mensualidad, se reclasifica desde la sección Consumo CRM.
+    if (ctx.stripeChargeId) {
+      const saved = await crmConsumptionService.record({
+        clientId: client._id,
+        clientName: client.name,
+        stripeCustomerId: ctx.stripeCustomerId,
+        stripeChargeId: ctx.stripeChargeId,
+        amount: ctx.amount,
+        currency: ctx.currency,
+        paidAt: ctx.paidAt,
+        description: ctx.description,
+        receiptUrl: ctx.receiptUrl,
+        source: "stripe_webhook",
+      });
+      return record(
+        event,
+        "processed",
+        `${client.name}: ${ctx.amount} ${ctx.currency} guardado como consumo CRM${saved.created ? "" : " (ya existía)"}`,
+        { stripeChargeId: ctx.stripeChargeId }
+      );
+    }
     return record(
       event,
       "unmatched",
-      `${client.name} pagó ${ctx.amount} ${ctx.currency} pero no tiene cobros abiertos`,
-      { stripeChargeId: ctx.stripeChargeId || undefined }
+      `${client.name} pagó ${ctx.amount} ${ctx.currency} pero no tiene cobros abiertos ni charge id`,
+      { stripeChargeId: undefined }
     );
   }
 

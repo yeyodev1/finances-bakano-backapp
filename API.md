@@ -1309,7 +1309,8 @@ Consumido únicamente por `ads-bakano-clients-backapp` con el header `x-metrics-
 cliente y su pertenencia al workspace.
 
 ```bash
-# Foto de facturación del workspace: cliente, resumen, facturas, pagos y submissions
+# Foto de facturación del workspace: cliente, resumen, facturas, pagos, submissions y
+# consumo CRM acumulado (crmConsumption.items + totals{total, currentMonth, byMonth})
 curl "http://localhost:8101/api/portal/workspaces/<workspaceId>/billing" \
   -H "x-metrics-key: $METRICS_PROXY_KEY"
 
@@ -1324,3 +1325,30 @@ curl -X POST "http://localhost:8101/api/portal/workspaces/<workspaceId>/submissi
   -F "receipt=@comprobante.pdf" -F "grossAmount=500" -F "feeAmount=15" \
   -F "submittedByName=Juan Pérez" -F "submittedByEmail=juan@cliente.com"
 ```
+
+---
+
+## Consumo CRM (`/crm-consumption`)
+
+Cargos de Stripe de clientes vinculados que NO calzan con ninguna factura: es el consumo del
+CRM (GoHighLevel) que Bakano provee. Se guardan solos — desde el webhook y desde la importación —
+para que ese dinero quede a la vista en su propia sección en vez de perderse como "sin factura".
+
+```bash
+# Listado con totales (mes actual, histórico y ranking por cliente)
+curl "http://localhost:8101/api/crm-consumption?clientId=&period=2026-08" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Reclasificar: el cargo era una mensualidad → se convierte en Payment de esa factura
+# (con todos sus efectos) y sale de consumo CRM
+curl -X POST "http://localhost:8101/api/crm-consumption/<id>/apply" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"invoiceId":"<id>"}'
+
+# Eliminar el registro (solo superadmin; el cargo sigue existiendo en Stripe)
+curl -X DELETE "http://localhost:8101/api/crm-consumption/<id>" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+La respuesta de `POST /api/stripe/import/charges` ahora devuelve `crmSaved` en lugar de
+`unmatched`: los cargos sin factura quedan registrados como consumo, no requieren acción manual.
