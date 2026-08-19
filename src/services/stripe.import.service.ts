@@ -158,6 +158,7 @@ async function importCharges(clientId: string, user?: JwtPayload) {
 
   const imported: Array<{ stripeChargeId: string; amount: number; period: string }> = [];
   const skipped: Array<{ stripeChargeId: string; reason: string }> = [];
+  const reconciled: Array<{ stripeChargeId: string; amount: number; paidAt: Date }> = [];
   const crmSaved: Array<{ stripeChargeId: string; amount: number; paidAt: Date; description?: string }> = [];
 
   for (const charge of charges) {
@@ -169,6 +170,23 @@ async function importCharges(clientId: string, user?: JwtPayload) {
 
     const invoice = await findInvoiceForCharge(client._id, charge);
     if (!invoice) {
+      // ¿La mensualidad ya se registró a mano? Entonces este cargo ES ese pago:
+      // se adopta (charge id + recibo) en vez de duplicarlo en consumo CRM.
+      const adopted = await paymentService.adoptStripeCharge({
+        clientId: client._id,
+        stripeChargeId: charge.stripeChargeId,
+        amount: charge.amount,
+        paidAt: charge.paidAt,
+        receiptUrl: charge.receiptUrl,
+      });
+      if (adopted) {
+        reconciled.push({
+          stripeChargeId: charge.stripeChargeId,
+          amount: charge.amount,
+          paidAt: charge.paidAt,
+        });
+        continue;
+      }
       // Sin factura que calce: es consumo del CRM (GoHighLevel). Se guarda en su
       // propia sección; desde ahí se puede reclasificar a factura si hizo falta.
       const saved = await crmConsumptionService.record({
@@ -229,9 +247,19 @@ async function importCharges(clientId: string, user?: JwtPayload) {
       profiles: profileIds,
       imported: imported.length,
       skipped: skipped.length,
+      reconciled: reconciled.length,
       crmSaved: crmSaved.length,
     },
   });
+
+  const parts = [
+    `${imported.length} cargo(s) importados`,
+    `${skipped.length} ya existían`,
+    `${crmSaved.length} guardados como consumo CRM`,
+  ];
+  if (reconciled.length) {
+    parts.push(`${reconciled.length} conciliados con pagos registrados a mano`);
+  }
 
   return {
     clientId: client._id.toString(),
@@ -239,8 +267,9 @@ async function importCharges(clientId: string, user?: JwtPayload) {
     totalCharges: charges.length,
     imported,
     skipped,
+    reconciled,
     crmSaved,
-    message: `${imported.length} cargo(s) importados, ${skipped.length} ya existían, ${crmSaved.length} guardados como consumo CRM`,
+    message: parts.join(", "),
   };
 }
 
