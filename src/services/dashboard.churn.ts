@@ -16,6 +16,13 @@ export interface ChurnReasonRow {
   totalLifetimeRevenue: number;
 }
 
+export interface ChurnMonthRow {
+  /** "YYYY-MM" en hora de Ecuador. */
+  month: string;
+  count: number;
+  lostMonthlyAmount: number;
+}
+
 export interface ChurnTotals {
   archivedClients: number;
   lostMonthlyAmount: number;
@@ -57,6 +64,39 @@ async function byReason(): Promise<ChurnReasonRow[]> {
   }));
 }
 
+async function byMonth(): Promise<ChurnMonthRow[]> {
+  const rows = await Client.aggregate<{
+    _id: string;
+    count: number;
+    lostMonthlyAmount: number;
+  }>([
+    { $match: { isArchived: true, archivedAt: { $type: "date" } } },
+    { $addFields: { monthlyAmount: MONTHLY_AMOUNT_EXPR } },
+    {
+      $group: {
+        // La zona horaria importa: una baja registrada de noche en Ecuador
+        // cae en el mes siguiente si se agrupa en UTC.
+        _id: {
+          $dateToString: {
+            format: "%Y-%m",
+            date: "$archivedAt",
+            timezone: "America/Guayaquil",
+          },
+        },
+        count: { $sum: 1 },
+        lostMonthlyAmount: { $sum: "$monthlyAmount" },
+      },
+    },
+    { $sort: { _id: 1 } },
+  ]);
+
+  return rows.map((row) => ({
+    month: row._id,
+    count: row.count,
+    lostMonthlyAmount: round2(row.lostMonthlyAmount),
+  }));
+}
+
 async function totals(): Promise<ChurnTotals> {
   const [row] = await Client.aggregate<{
     archivedClients: number;
@@ -91,16 +131,19 @@ async function totals(): Promise<ChurnTotals> {
  * Incluye lo que Bakano invierte en retenerlos —garantías— y lo que devuelve.
  */
 export async function churnReport() {
-  const [reasons, resume, recent, guarantees, refunds] = await Promise.all([
-    byReason(),
-    totals(),
-    clientLifecycleService.listArchived(20),
-    guaranteeService.summary(),
-    refundService.summary(),
-  ]);
+  const [reasons, months, resume, recent, guarantees, refunds] =
+    await Promise.all([
+      byReason(),
+      byMonth(),
+      totals(),
+      clientLifecycleService.listArchived(20),
+      guaranteeService.summary(),
+      refundService.summary(),
+    ]);
 
   return {
     byReason: reasons,
+    byMonth: months,
     totals: resume,
     guarantees,
     refunds,
