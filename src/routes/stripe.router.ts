@@ -22,7 +22,13 @@ stripeRouter.post(
   validate(linkCustomerSchema),
   stripeController.linkCustomer
 );
+// Sin :stripeCustomerId quita TODOS los perfiles; con él, solo ese.
 stripeRouter.delete("/import/link/:clientId", canWrite, stripeController.unlinkCustomer);
+stripeRouter.delete(
+  "/import/link/:clientId/:stripeCustomerId",
+  canWrite,
+  stripeController.unlinkCustomer
+);
 stripeRouter.post(
   "/import/charges",
   canWrite,

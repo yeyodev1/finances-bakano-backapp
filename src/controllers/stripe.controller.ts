@@ -35,7 +35,12 @@ export const linkCustomer = asyncHandler(async (req: AuthRequest, res: Response)
 });
 
 export const unlinkCustomer = asyncHandler(async (req: AuthRequest, res: Response) => {
-  res.status(200).json(await stripeImportService.unlinkCustomer(param(req, "clientId"), req.user));
+  const stripeCustomerId = req.params.stripeCustomerId
+    ? param(req, "stripeCustomerId")
+    : undefined;
+  res
+    .status(200)
+    .json(await stripeImportService.unlinkCustomer(param(req, "clientId"), stripeCustomerId, req.user));
 });
 
 export const importCharges = asyncHandler(async (req: AuthRequest, res: Response) => {

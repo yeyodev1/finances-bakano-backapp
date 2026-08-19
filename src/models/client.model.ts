@@ -155,7 +155,11 @@ export interface IClient extends Document {
   /** Garantía vigente (caché de la colección `Guarantee`). */
   guarantee: IClientGuarantee;
 
-  stripeCustomerId?: string;
+  /** Principal: se usa para las Checkout Sessions. Siempre está también en el array. */
+  stripeCustomerId?: string | null;
+  /** Todos los customers de Stripe del cliente. Hay clientes con perfiles duplicados
+   *  en Stripe (mismo negocio, varios cus_): cualquiera de ellos matchea sus pagos. */
+  stripeCustomerIds: string[];
   stripeSubscriptionId?: string;
 
   createdBy?: mongoose.Types.ObjectId;
@@ -289,6 +293,7 @@ const clientSchema = new Schema<IClient>(
     guarantee: { type: clientGuaranteeSchema, default: () => ({ cycle: 0 }) },
 
     stripeCustomerId: { type: String, default: null },
+    stripeCustomerIds: { type: [String], default: [], index: true },
     stripeSubscriptionId: { type: String, default: null },
 
     createdBy: { type: Schema.Types.ObjectId, ref: "User" },
