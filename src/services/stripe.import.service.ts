@@ -9,27 +9,39 @@ import { stripeService, StripeChargeSummary } from "./stripe.service";
 const MIN_SUGGESTION_SCORE = 0.45;
 const OPEN_STATUSES = ["pending", "partial", "overdue"];
 
+/** Todos los cus_ de un cliente: el principal más los perfiles duplicados. */
+function customerIdsOf(client: { stripeCustomerId?: string | null; stripeCustomerIds?: string[] }) {
+  const ids = new Set<string>(client.stripeCustomerIds || []);
+  if (client.stripeCustomerId) ids.add(client.stripeCustomerId);
+  return [...ids];
+}
+
 /**
  * Customers de Stripe con sugerencias de cliente por similitud de nombre.
  * Mismo criterio que la vinculación de workspaces: la máquina sugiere, el
- * humano confirma 1 a 1.
+ * humano confirma. Un cliente puede tener VARIOS perfiles de Stripe (hay
+ * negocios con customers duplicados), así que se sigue sugiriendo aunque
+ * el cliente ya tenga otro perfil vinculado.
  */
 async function listCustomersWithSuggestions() {
-  const [customers, clients, linked] = await Promise.all([
+  const [customers, clients] = await Promise.all([
     stripeService.listCustomers(),
-    Client.find({ isArchived: false }).select("name stripeCustomerId").sort({ name: 1 }),
-    Client.find({ stripeCustomerId: { $nin: [null, ""] } }).select("name stripeCustomerId"),
+    Client.find({ isArchived: false })
+      .select("name stripeCustomerId stripeCustomerIds")
+      .sort({ name: 1 }),
   ]);
 
-  const linkedByCustomer = new Map(linked.map((c) => [c.stripeCustomerId as string, c]));
-  const unlinkedClients = clients.filter((c) => !c.stripeCustomerId);
+  const linkedByCustomer = new Map<string, (typeof clients)[number]>();
+  for (const client of clients) {
+    for (const id of customerIdsOf(client)) linkedByCustomer.set(id, client);
+  }
 
   return customers.map((customer) => {
     const linkedClient = linkedByCustomer.get(customer.stripeCustomerId);
 
     const suggestions = linkedClient
       ? []
-      : unlinkedClients
+      : clients
           .map((client) => ({
             clientId: client._id.toString(),
             clientName: client.name,
@@ -48,20 +60,28 @@ async function listCustomersWithSuggestions() {
   });
 }
 
+/** Vincula un perfil de Stripe. Un cliente puede acumular varios; el primero queda de principal. */
 async function linkCustomer(input: { clientId: string; stripeCustomerId: string }, user?: JwtPayload) {
   const client = await Client.findById(input.clientId);
   if (!client) throw new CustomError("Cliente no encontrado", 404);
 
   const taken = await Client.findOne({
-    stripeCustomerId: input.stripeCustomerId,
     _id: { $ne: client._id },
+    $or: [
+      { stripeCustomerId: input.stripeCustomerId },
+      { stripeCustomerIds: input.stripeCustomerId },
+    ],
   });
   if (taken) {
     throw new CustomError(`Ese customer de Stripe ya está vinculado a ${taken.name}`, 409);
   }
 
-  const previous = client.stripeCustomerId || null;
-  client.stripeCustomerId = input.stripeCustomerId;
+  if (customerIdsOf(client).includes(input.stripeCustomerId)) {
+    throw new CustomError(`${client.name} ya tiene vinculado ese perfil`, 409);
+  }
+
+  client.stripeCustomerIds = [...(client.stripeCustomerIds || []), input.stripeCustomerId];
+  if (!client.stripeCustomerId) client.stripeCustomerId = input.stripeCustomerId;
   await client.save();
 
   await AuditLog.create({
@@ -70,19 +90,31 @@ async function linkCustomer(input: { clientId: string; stripeCustomerId: string 
     entityId: client._id.toString(),
     userId: user?._id,
     userName: user?.name,
-    meta: { stripeCustomerId: input.stripeCustomerId, previous },
+    meta: { stripeCustomerId: input.stripeCustomerId, allProfiles: customerIdsOf(client) },
   });
 
-  return { message: `${client.name} vinculado a ${input.stripeCustomerId}`, client };
+  return {
+    message: `${client.name} vinculado a ${input.stripeCustomerId} (${customerIdsOf(client).length} perfil(es))`,
+    client,
+  };
 }
 
-async function unlinkCustomer(clientId: string, user?: JwtPayload) {
+/** Desvincula UN perfil (stripeCustomerId) o todos si no se indica. */
+async function unlinkCustomer(clientId: string, stripeCustomerId?: string, user?: JwtPayload) {
   const client = await Client.findById(clientId);
   if (!client) throw new CustomError("Cliente no encontrado", 404);
-  if (!client.stripeCustomerId) throw new CustomError("El cliente no tiene Stripe vinculado", 400);
 
-  const previous = client.stripeCustomerId;
-  client.stripeCustomerId = null as unknown as string | undefined;
+  const current = customerIdsOf(client);
+  if (!current.length) throw new CustomError("El cliente no tiene Stripe vinculado", 400);
+  if (stripeCustomerId && !current.includes(stripeCustomerId)) {
+    throw new CustomError("El cliente no tiene vinculado ese perfil", 400);
+  }
+
+  const removed = stripeCustomerId ? [stripeCustomerId] : current;
+  const remaining = current.filter((id) => !removed.includes(id));
+
+  client.stripeCustomerIds = remaining;
+  client.stripeCustomerId = remaining[0] || null;
   await client.save();
 
   await AuditLog.create({
@@ -92,10 +124,15 @@ async function unlinkCustomer(clientId: string, user?: JwtPayload) {
     userId: user?._id,
     userName: user?.name,
     level: "warn",
-    meta: { previous },
+    meta: { removed, remaining },
   });
 
-  return { message: `${client.name} desvinculado de Stripe`, client };
+  return {
+    message: remaining.length
+      ? `${client.name}: perfil quitado, quedan ${remaining.length}`
+      : `${client.name} desvinculado de Stripe`,
+    client,
+  };
 }
 
 /**
@@ -107,11 +144,16 @@ async function unlinkCustomer(clientId: string, user?: JwtPayload) {
 async function importCharges(clientId: string, user?: JwtPayload) {
   const client = await Client.findById(clientId);
   if (!client) throw new CustomError("Cliente no encontrado", 404);
-  if (!client.stripeCustomerId) {
+
+  const profileIds = customerIdsOf(client);
+  if (!profileIds.length) {
     throw new CustomError("El cliente no tiene un customer de Stripe vinculado", 400);
   }
 
-  const charges = await stripeService.listCharges(client.stripeCustomerId);
+  // Cargos de TODOS los perfiles del cliente, en orden cronológico.
+  const charges = (await Promise.all(profileIds.map((id) => stripeService.listCharges(id))))
+    .flat()
+    .sort((a, b) => a.paidAt.getTime() - b.paidAt.getTime());
 
   const imported: Array<{ stripeChargeId: string; amount: number; period: string }> = [];
   const skipped: Array<{ stripeChargeId: string; reason: string }> = [];
@@ -165,7 +207,7 @@ async function importCharges(clientId: string, user?: JwtPayload) {
     userId: user?._id,
     userName: user?.name,
     meta: {
-      stripeCustomerId: client.stripeCustomerId,
+      profiles: profileIds,
       imported: imported.length,
       skipped: skipped.length,
       unmatched: unmatched.length,

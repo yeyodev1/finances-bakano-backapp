@@ -82,7 +82,13 @@ async function resolveClient(ctx: ChargeContext) {
     if (byId) return byId;
   }
   if (ctx.stripeCustomerId) {
-    return Client.findOne({ stripeCustomerId: ctx.stripeCustomerId });
+    // El cliente puede tener varios perfiles de Stripe: matchea principal o duplicados.
+    return Client.findOne({
+      $or: [
+        { stripeCustomerId: ctx.stripeCustomerId },
+        { stripeCustomerIds: ctx.stripeCustomerId },
+      ],
+    });
   }
   return null;
 }

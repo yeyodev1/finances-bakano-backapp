@@ -1249,17 +1249,23 @@ curl "http://localhost:8101/api/stripe/status" -H "Authorization: Bearer $TOKEN"
 # Customers de Stripe con sugerencias de cliente por similitud de nombre (score 0-1)
 curl "http://localhost:8101/api/stripe/import/customers" -H "Authorization: Bearer $TOKEN"
 
-# Vincular 1 a 1 (falla 409 si el customer ya es de otro cliente)
+# Vincular un perfil (falla 409 si el customer ya es de otro cliente).
+# Un cliente puede acumular VARIOS perfiles (customers duplicados en Stripe);
+# el primero vinculado queda como principal y es el que usa el Checkout.
 curl -X POST "http://localhost:8101/api/stripe/import/link" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"clientId":"<id>","stripeCustomerId":"cus_..."}'
 
-# Desvincular
+# Desvincular UN perfil (los demás se conservan)
+curl -X DELETE "http://localhost:8101/api/stripe/import/link/<clientId>/<cus_...>" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Desvincular TODOS los perfiles del cliente
 curl -X DELETE "http://localhost:8101/api/stripe/import/link/<clientId>" \
   -H "Authorization: Bearer $TOKEN"
 
-# Importar cargos históricos del cliente vinculado (idempotente por stripeChargeId,
-# sin correos masivos). Devuelve imported / skipped / unmatched.
+# Importar cargos históricos del cliente (recorre TODOS sus perfiles vinculados;
+# idempotente por stripeChargeId, sin correos masivos). Devuelve imported / skipped / unmatched.
 curl -X POST "http://localhost:8101/api/stripe/import/charges" \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"clientId":"<id>"}'
