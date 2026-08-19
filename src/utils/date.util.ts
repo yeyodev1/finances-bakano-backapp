@@ -123,3 +123,20 @@ export function periodLabelEs(period: string): string {
   );
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
+
+/**
+ * Suma horas laborables (lunes a viernes) a una fecha. Los fines de semana no
+ * corren el reloj: se usa para el SLA de 48h de verificación de transferencias.
+ */
+export function addBusinessHours(date: Date, hours: number): Date {
+  const result = new Date(date);
+  let remaining = hours;
+
+  while (remaining > 0) {
+    result.setHours(result.getHours() + 1);
+    const day = result.getDay();
+    if (day !== 0 && day !== 6) remaining -= 1;
+  }
+
+  return result;
+}

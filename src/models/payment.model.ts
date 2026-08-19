@@ -1,5 +1,5 @@
 import mongoose, { Document, Schema } from "mongoose";
-import { PAYMENT_METHODS, PaymentMethod } from "../types/finance.types";
+import { PAYMENT_METHODS, PAYMENT_SOURCES, PaymentMethod, PaymentSource } from "../types/finance.types";
 
 export interface IPayment extends Document {
   _id: mongoose.Types.ObjectId;
@@ -17,6 +17,13 @@ export interface IPayment extends Document {
 
   receiptUrl?: string;
   receiptPublicId?: string;
+
+  source: PaymentSource;
+  /** ch_... de Stripe. Barrera de idempotencia: un cargo nunca genera dos pagos. */
+  stripeChargeId?: string;
+  /** Transferencias internacionales: lo que envió el cliente y lo que se comió el banco. */
+  grossAmount?: number;
+  feeAmount?: number;
 
   registeredBy?: mongoose.Types.ObjectId;
   registeredByName?: string;
@@ -40,6 +47,11 @@ const paymentSchema = new Schema<IPayment>(
 
     receiptUrl: { type: String },
     receiptPublicId: { type: String },
+
+    source: { type: String, enum: PAYMENT_SOURCES, default: "manual" },
+    stripeChargeId: { type: String, unique: true, sparse: true },
+    grossAmount: { type: Number, min: 0 },
+    feeAmount: { type: Number, min: 0 },
 
     registeredBy: { type: Schema.Types.ObjectId, ref: "User" },
     registeredByName: { type: String },

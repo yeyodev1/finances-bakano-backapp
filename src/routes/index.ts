@@ -11,6 +11,9 @@ import dashboardRouter from "./dashboard.router";
 import settingsRouter from "./settings.router";
 import workspaceRouter from "./workspace.router";
 import mercuryRouter from "./mercury.router";
+import stripeRouter from "./stripe.router";
+import paymentSubmissionRouter from "./paymentSubmission.router";
+import portalRouter from "./portal.router";
 import cronRouter from "./cron.router";
 
 function routerApi(app: Application) {
@@ -30,6 +33,9 @@ function routerApi(app: Application) {
   router.use("/settings", settingsRouter);
   router.use("/workspaces", workspaceRouter);
   router.use("/mercury", mercuryRouter);
+  router.use("/stripe", stripeRouter);
+  router.use("/payment-submissions", paymentSubmissionRouter);
+  router.use("/portal", portalRouter);
   router.use("/cron", cronRouter);
 }
 

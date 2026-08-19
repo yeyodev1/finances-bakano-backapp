@@ -13,6 +13,8 @@ export {
   ISaleItem,
   ISaleBilling,
 } from "./sale.model";
+export { StripeEvent, IStripeEvent } from "./stripeEvent.model";
+export { PaymentSubmission, IPaymentSubmission } from "./paymentSubmission.model";
 export { NotificationSetting, INotificationSetting } from "./notificationSetting.model";
 export { AppSetting, IAppSetting } from "./appSetting.model";
 export { EmailLog, IEmailLog } from "./emailLog.model";

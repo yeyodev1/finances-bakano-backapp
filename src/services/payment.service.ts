@@ -1,7 +1,7 @@
 import { FilterQuery } from "mongoose";
 import { AuditLog, Client, IInvoice, Invoice, IPayment, Payment } from "../models";
 import { CustomError } from "../errors/customError.error";
-import { PaginatedResult, PaymentMethod } from "../types/finance.types";
+import { PaginatedResult, PaymentMethod, PaymentSource } from "../types/finance.types";
 import { JwtPayload } from "../types/AuthRequest";
 import { startOfDay } from "../utils/date.util";
 import { cloudinaryService } from "./cloudinary.service";
@@ -19,6 +19,17 @@ export interface RegisterPaymentInput {
   reference?: string;
   notes?: string;
   receipt?: Buffer;
+  /** Comprobante ya subido a Cloudinary (submissions del portal): se reutiliza, no se re-sube. */
+  receiptUrl?: string;
+  receiptPublicId?: string;
+  source?: PaymentSource;
+  stripeChargeId?: string;
+  grossAmount?: number;
+  feeAmount?: number;
+  /** Actor de sistema (webhook, import) cuando no hay usuario JWT. */
+  registeredByName?: string;
+  /** Los backfills masivos no deben disparar un correo por cada cargo histórico. */
+  skipEmail?: boolean;
 }
 
 export interface PaymentListQuery {
@@ -86,8 +97,15 @@ async function register(input: RegisterPaymentInput, user?: JwtPayload) {
   const client = await Client.findById(invoice.clientId);
   if (!client) throw new CustomError("Cliente no encontrado", 404);
 
-  let receiptUrl: string | undefined;
-  let receiptPublicId: string | undefined;
+  if (input.stripeChargeId) {
+    const existing = await Payment.findOne({ stripeChargeId: input.stripeChargeId });
+    if (existing) {
+      throw new CustomError(`El cargo de Stripe ${input.stripeChargeId} ya está registrado`, 409);
+    }
+  }
+
+  let receiptUrl = input.receiptUrl;
+  let receiptPublicId = input.receiptPublicId;
 
   if (input.receipt) {
     const uploaded = await cloudinaryService.uploadBuffer(input.receipt, RECEIPT_FOLDER);
@@ -113,8 +131,12 @@ async function register(input: RegisterPaymentInput, user?: JwtPayload) {
     notes: input.notes,
     receiptUrl,
     receiptPublicId,
+    source: input.source || "manual",
+    stripeChargeId: input.stripeChargeId,
+    grossAmount: input.grossAmount,
+    feeAmount: input.feeAmount,
     registeredBy: user?._id,
-    registeredByName: user?.name,
+    registeredByName: user?.name || input.registeredByName,
   });
 
   // Cobro anticipado con vencimiento futuro: no hay mora que regularizar, así que
@@ -131,10 +153,12 @@ async function register(input: RegisterPaymentInput, user?: JwtPayload) {
     await maybeReactivateWorkspace(client._id, invoice._id);
   }
 
-  try {
-    await emailService.sendPaymentRegistered({ invoice, payment, client });
-  } catch (error) {
-    console.error("[payment] Falló el email de pago registrado:", error);
+  if (!input.skipEmail) {
+    try {
+      await emailService.sendPaymentRegistered({ invoice, payment, client });
+    } catch (error) {
+      console.error("[payment] Falló el email de pago registrado:", error);
+    }
   }
 
   await AuditLog.create({
