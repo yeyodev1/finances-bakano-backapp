@@ -27,7 +27,9 @@ function uploadBuffer(buffer: Buffer, folder: string, publicId?: string): Promis
         folder,
         public_id: publicId,
         overwrite: true,
-        resource_type: "image",
+        // "auto" para que los PDF de comprobantes no fallen: con "image" fijo
+        // Cloudinary rechaza cualquier documento.
+        resource_type: "auto",
       },
       (error, result?: UploadApiResponse) => {
         if (error || !result) {

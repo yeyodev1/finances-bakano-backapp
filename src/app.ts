@@ -4,6 +4,7 @@ import http from "http";
 import routerApi from "./routes";
 import { dbConnect } from "./config/mongo";
 import { globalErrorHandler } from "./middlewares/globalErrorHandler.middleware";
+import { webhook as stripeWebhook } from "./controllers/stripe.controller";
 
 const whitelist = [
   "http://localhost:8100",
@@ -44,6 +45,18 @@ export function createApp() {
   const app = express();
 
   app.use(cors(corsOptions));
+
+  // El webhook de Stripe verifica la firma sobre el body crudo, así que se monta
+  // ANTES del express.json global (que consumiría y parsearía el stream).
+  app.post(
+    "/api/stripe/webhook",
+    express.raw({ type: "application/json" }),
+    (_req, _res, next) => {
+      dbConnect().then(() => next(), next);
+    },
+    stripeWebhook
+  );
+
   app.use(express.json({ limit: "50mb" }));
 
   // En serverless la instancia puede arrancar en frío: aseguramos la conexión.

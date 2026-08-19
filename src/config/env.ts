@@ -37,6 +37,16 @@ export const env = {
     cacheTtl: Number(process.env.MERCURY_CACHE_TTL || 60),
   },
 
+  stripe: {
+    /** Acepta sk_ o rk_ (restricted). En develop se usa la restricted de test. */
+    secretKey: process.env.STRIPE_SECRET_KEY || "",
+    /** whsec_... del endpoint configurado en el dashboard (o de `stripe listen` en local). */
+    webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || "",
+  },
+
+  /** Clave con la que metrics-backapp consume los endpoints /api/portal (header x-metrics-key). */
+  metricsProxyKey: process.env.METRICS_PROXY_KEY || "",
+
   appUrl: process.env.APP_URL || "http://localhost:5173",
   cronSecret: process.env.CRON_SECRET || "",
   cronEnabled: process.env.CRON_ENABLED !== "false",

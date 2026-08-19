@@ -2,6 +2,8 @@ import mongoose, { Document, Schema } from "mongoose";
 
 export interface INotificationToggles {
   paymentRegistered: boolean;
+  /** Comprobantes de transferencia subidos por clientes desde el portal. */
+  paymentSubmission: boolean;
   reminderBefore: boolean;
   overdue: boolean;
   deactivation: boolean;
@@ -41,6 +43,7 @@ export interface INotificationSetting extends Document {
 const togglesSchema = new Schema<INotificationToggles>(
   {
     paymentRegistered: { type: Boolean, default: true },
+    paymentSubmission: { type: Boolean, default: true },
     reminderBefore: { type: Boolean, default: true },
     overdue: { type: Boolean, default: true },
     deactivation: { type: Boolean, default: true },

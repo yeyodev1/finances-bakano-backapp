@@ -9,6 +9,10 @@ export const PAYMENT_METHODS = [
 ] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
+/** De dónde salió el pago: registro manual, webhook/import de Stripe o comprobante del cliente. */
+export const PAYMENT_SOURCES = ["manual", "stripe", "client_submission"] as const;
+export type PaymentSource = (typeof PAYMENT_SOURCES)[number];
+
 export const BILLING_TYPES = ["monthly", "no_charge", "special"] as const;
 export type BillingType = (typeof BILLING_TYPES)[number];
 
@@ -30,6 +34,8 @@ export const EMAIL_TYPES = [
   "workspace_reactivated",
   "monthly_summary",
   "payment_deferred",
+  "payment_submission_received",
+  "payment_submission_reviewed",
   "client_archived",
   "access_granted",
   "access_revoked",

@@ -1,5 +1,5 @@
 import { env } from "../config/env";
-import { IClient, IInvoice, IPayment } from "../models";
+import { IClient, IInvoice, IPayment, IPaymentSubmission } from "../models";
 import { ArchiveReason } from "../types/finance.types";
 import { formatDateEs, toPeriod } from "../utils/date.util";
 import { settingsService } from "./settings.service";
@@ -22,6 +22,8 @@ import { paymentDeferredTemplate } from "../templates/paymentDeferred.template";
 import { clientArchivedTemplate } from "../templates/clientArchived.template";
 import { accessGrantedTemplate } from "../templates/accessGranted.template";
 import { accessRevokedTemplate } from "../templates/accessRevoked.template";
+import { paymentSubmissionReceivedTemplate } from "../templates/paymentSubmissionReceived.template";
+import { paymentSubmissionReviewedTemplate } from "../templates/paymentSubmissionReviewed.template";
 
 async function sendPaymentRegistered(params: {
   invoice: IInvoice;
@@ -34,6 +36,31 @@ async function sendPaymentRegistered(params: {
     rendered: paymentRegisteredTemplate(params),
     relatedModel: "Payment",
     relatedId: params.payment._id?.toString(),
+  });
+}
+
+/** Un cliente subió comprobante desde el portal: toda la empresa debe enterarse. */
+async function sendPaymentSubmissionReceived(params: {
+  submission: IPaymentSubmission;
+}): Promise<SendResult> {
+  return dispatch({
+    type: "payment_submission_received",
+    toggle: "paymentSubmission",
+    rendered: paymentSubmissionReceivedTemplate(params),
+    relatedModel: "PaymentSubmission",
+    relatedId: params.submission._id?.toString(),
+  });
+}
+
+async function sendPaymentSubmissionReviewed(params: {
+  submission: IPaymentSubmission;
+}): Promise<SendResult> {
+  return dispatch({
+    type: "payment_submission_reviewed",
+    toggle: "paymentSubmission",
+    rendered: paymentSubmissionReviewedTemplate(params),
+    relatedModel: "PaymentSubmission",
+    relatedId: params.submission._id?.toString(),
   });
 }
 
@@ -242,6 +269,8 @@ export type { SendResult };
 
 export const emailService = {
   sendPaymentRegistered,
+  sendPaymentSubmissionReceived,
+  sendPaymentSubmissionReviewed,
   sendReminderBeforeDue,
   sendOverdueAlert,
   sendPaymentDeferred,

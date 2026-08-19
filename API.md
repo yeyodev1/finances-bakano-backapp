@@ -1218,3 +1218,103 @@ curl "http://localhost:8101/api/mercury/overview?days=180" -H "Authorization: Be
 curl "http://localhost:8101/api/mercury/accounts/$ACCOUNT_ID/transactions?limit=50&status=sent" \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+---
+
+## Stripe (`/stripe`)
+
+Conexión con Stripe para pagos con tarjeta. La clave (`STRIPE_SECRET_KEY`, acepta `sk_` o `rk_`
+restricted) y el `STRIPE_WEBHOOK_SECRET` van por entorno; sin ellas los endpoints responden 503.
+
+### Webhook (público, firma verificada)
+
+`POST /api/stripe/webhook` se monta **antes** del `express.json` global porque la firma se
+verifica sobre el body crudo. Maneja `checkout.session.completed` y `charge.succeeded`; es
+idempotente por `eventId` (modelo `StripeEvent`) y por `stripeChargeId` único en `Payment`.
+Un cargo de un customer sin vincular queda como `unmatched` (no crea pagos huérfanos) y se
+audita en `AuditLog` con `stripe.charge_unmatched`.
+
+```bash
+# En local, reenviar eventos de prueba:
+stripe listen --forward-to localhost:8101/api/stripe/webhook
+stripe trigger charge.succeeded
+```
+
+### Vinculación e importación (admin)
+
+```bash
+# Estado de la integración
+curl "http://localhost:8101/api/stripe/status" -H "Authorization: Bearer $TOKEN"
+
+# Customers de Stripe con sugerencias de cliente por similitud de nombre (score 0-1)
+curl "http://localhost:8101/api/stripe/import/customers" -H "Authorization: Bearer $TOKEN"
+
+# Vincular 1 a 1 (falla 409 si el customer ya es de otro cliente)
+curl -X POST "http://localhost:8101/api/stripe/import/link" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"clientId":"<id>","stripeCustomerId":"cus_..."}'
+
+# Desvincular
+curl -X DELETE "http://localhost:8101/api/stripe/import/link/<clientId>" \
+  -H "Authorization: Bearer $TOKEN"
+
+# Importar cargos históricos del cliente vinculado (idempotente por stripeChargeId,
+# sin correos masivos). Devuelve imported / skipped / unmatched.
+curl -X POST "http://localhost:8101/api/stripe/import/charges" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"clientId":"<id>"}'
+```
+
+El match de factura para un cargo histórico: período del mes del cobro → misma deuda por monto →
+la abierta más vieja. Lo que no calza se devuelve en `unmatched` para aplicarlo a mano.
+
+---
+
+## Comprobantes del portal (`/payment-submissions`)
+
+Transferencias subidas por el CLIENTE desde metrics. Flujo de aprobación manual con SLA de
+**48 horas laborables** (`reviewDueAt`). El fee bancario lo asume el cliente: al aprobar, el
+pago se registra por el **neto** (`netAmount`) y la factura puede quedar `partial`.
+
+```bash
+# Pendientes (admin)
+curl "http://localhost:8101/api/payment-submissions?status=pending" -H "Authorization: Bearer $TOKEN"
+
+# Aprobar: crea el Payment real (method transferencia, source client_submission).
+# Si la submission no traía factura, se aplica a la abierta más vieja o a la indicada.
+curl -X POST "http://localhost:8101/api/payment-submissions/<id>/approve" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"invoiceId":"<opcional>","reviewNote":"ok"}'
+
+# Rechazar (motivo obligatorio: el cliente lo ve en su portal)
+curl -X POST "http://localhost:8101/api/payment-submissions/<id>/reject" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"reviewNote":"El comprobante no corresponde al monto"}'
+```
+
+Ambas acciones notifican a la empresa por Resend (toggle `paymentSubmission`).
+
+---
+
+## Portal del cliente (`/portal`) — solo servidor a servidor
+
+Consumido únicamente por `ads-bakano-clients-backapp` con el header `x-metrics-key`
+(`METRICS_PROXY_KEY`, clave distinta de `FINANCE_API_KEY`). metrics ya validó el JWT del
+cliente y su pertenencia al workspace.
+
+```bash
+# Foto de facturación del workspace: cliente, resumen, facturas, pagos y submissions
+curl "http://localhost:8101/api/portal/workspaces/<workspaceId>/billing" \
+  -H "x-metrics-key: $METRICS_PROXY_KEY"
+
+# Link de pago con tarjeta (Checkout Session) por el saldo de la factura
+curl -X POST "http://localhost:8101/api/portal/workspaces/<workspaceId>/checkout-session" \
+  -H "x-metrics-key: $METRICS_PROXY_KEY" -H "Content-Type: application/json" \
+  -d '{"invoiceId":"<id>","returnUrl":"https://metrics.bakano.ec/workspaces/<id>/facturacion"}'
+
+# Subir comprobante de transferencia (multipart)
+curl -X POST "http://localhost:8101/api/portal/workspaces/<workspaceId>/submissions" \
+  -H "x-metrics-key: $METRICS_PROXY_KEY" \
+  -F "receipt=@comprobante.pdf" -F "grossAmount=500" -F "feeAmount=15" \
+  -F "submittedByName=Juan Pérez" -F "submittedByEmail=juan@cliente.com"
+```
