@@ -568,7 +568,8 @@ El cliente lleva una copia del estado vigente en `client.guarantee` (`status`, `
 para poder pintar la lista de 58 clientes sin una consulta por fila. La verdad vive en
 `/guarantees`; esa copia es caché y se reescribe en cada apertura, extensión y cierre.
 
-`GET /dashboard/churn` devuelve además de las bajas los bloques `guarantees` y `refunds` con
+`GET /dashboard/churn` incluye `byMonth` (bajas agrupadas por mes en hora de Ecuador, orden
+cronológico) y devuelve además de las bajas los bloques `guarantees` y `refunds` con
 estos mismos totales: antes de perder a un cliente está lo que se invirtió en retenerlo.
 
 ---
@@ -747,6 +748,13 @@ Respuesta de `/churn`:
       "lostMonthlyAmount": 1680,
       "avgLifetimeDays": 312,
       "totalLifetimeRevenue": 18400
+    }
+  ],
+  "byMonth": [
+    {
+      "month": "2026-07",
+      "count": 3,
+      "lostMonthlyAmount": 1260
     }
   ],
   "totals": {
