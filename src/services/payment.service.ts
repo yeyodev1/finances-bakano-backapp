@@ -354,4 +354,55 @@ async function settle(
   };
 }
 
-export const paymentService = { register, settle, list, getById, remove };
+/**
+ * Concilia un cargo de Stripe con un pago registrado A MANO. Caso real: la
+ * mensualidad se registró manualmente (method stripe, sin charge id) y después
+ * el import/webhook encuentra el cargo real — es el mismo dinero, no un pago
+ * nuevo. Se adopta el cargo en el pago existente (charge id + recibo) en vez
+ * de duplicarlo o mandarlo a consumo CRM. Solo matchea pagos con method
+ * "stripe": una transferencia del mismo monto es plata distinta y no se toca.
+ */
+async function adoptStripeCharge(input: {
+  clientId: unknown;
+  stripeChargeId: string;
+  amount: number;
+  paidAt: Date;
+  receiptUrl?: string;
+}): Promise<IPayment | null> {
+  const windowMs = 7 * 24 * 60 * 60 * 1000;
+
+  const payment = await Payment.findOne({
+    clientId: input.clientId,
+    method: "stripe",
+    stripeChargeId: null,
+    amount: { $gte: input.amount - 0.01, $lte: input.amount + 0.01 },
+    paidAt: {
+      $gte: new Date(input.paidAt.getTime() - windowMs),
+      $lte: new Date(input.paidAt.getTime() + windowMs),
+    },
+  }).sort({ paidAt: -1 });
+
+  if (!payment) return null;
+
+  payment.stripeChargeId = input.stripeChargeId;
+  payment.source = "stripe";
+  if (!payment.reference) payment.reference = input.stripeChargeId;
+  if (!payment.receiptUrl && input.receiptUrl) payment.receiptUrl = input.receiptUrl;
+  await payment.save();
+
+  await AuditLog.create({
+    action: "stripe.charge_reconciled",
+    entity: "Payment",
+    entityId: payment._id.toString(),
+    userName: "Stripe",
+    meta: {
+      stripeChargeId: input.stripeChargeId,
+      amount: input.amount,
+      clientId: String(input.clientId),
+    },
+  });
+
+  return payment;
+}
+
+export const paymentService = { register, settle, list, getById, remove, adoptStripeCharge };

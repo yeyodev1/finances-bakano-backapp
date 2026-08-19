@@ -144,6 +144,26 @@ async function applyCharge(event: Stripe.Event, ctx: ChargeContext) {
   }
 
   if (!invoice) {
+    // ¿La mensualidad ya se registró a mano? Se adopta el cargo en ese pago
+    // (charge id + recibo) en vez de duplicarlo.
+    if (ctx.stripeChargeId) {
+      const adopted = await paymentService.adoptStripeCharge({
+        clientId: client._id,
+        stripeChargeId: ctx.stripeChargeId,
+        amount: ctx.amount,
+        paidAt: ctx.paidAt,
+        receiptUrl: ctx.receiptUrl,
+      });
+      if (adopted) {
+        return record(
+          event,
+          "processed",
+          `${client.name}: cargo conciliado con un pago registrado a mano`,
+          { stripeChargeId: ctx.stripeChargeId, paymentId: adopted._id }
+        );
+      }
+    }
+
     // Cliente vinculado sin cobro abierto: es consumo del CRM (GoHighLevel),
     // no una mensualidad. Se guarda igual para que ese dinero quede a la vista;
     // si resultó ser mensualidad, se reclasifica desde la sección Consumo CRM.
