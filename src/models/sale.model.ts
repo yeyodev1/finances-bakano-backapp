@@ -69,6 +69,12 @@ export interface ISale extends Document {
   businessName: string;
   /** Se enlaza cuando el prospecto ya es (o pasa a ser) cliente. */
   clientId?: mongoose.Types.ObjectId | null;
+  /**
+   * Tipo de cliente (restaurante, gimnasio…). Es lo que cruza la venta con el
+   * objetivo del mes; sin él la venta queda "sin clasificar" y hay que ubicarla.
+   */
+  categoryId?: mongoose.Types.ObjectId | null;
+  categoryName?: string | null;
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -157,6 +163,8 @@ const saleSchema = new Schema<ISale>(
   {
     businessName: { type: String, required: true, trim: true, index: true },
     clientId: { type: Schema.Types.ObjectId, ref: "Client", default: null, index: true },
+    categoryId: { type: Schema.Types.ObjectId, ref: "ClientCategory", default: null, index: true },
+    categoryName: { type: String, default: null },
     contactName: { type: String, trim: true },
     contactEmail: { type: String, trim: true, lowercase: true },
     contactPhone: { type: String, trim: true },
