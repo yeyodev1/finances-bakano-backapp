@@ -761,6 +761,16 @@ curl "http://localhost:8101/api/dashboard/top-clients?period=2026-08&limit=10" \
 curl "http://localhost:8101/api/dashboard/aging" \
   -H "Authorization: Bearer $TOKEN"
 
+# Mora promedio: cuántos días tarda la gente en pagar.
+# "current" = vencidos HOY (foto): cobros, clientes, monto, días promedio/mediana/máximo.
+# "historical" = pagados en los últimos N meses (costumbre, default 12): % que pagó
+#   tarde, días promedio (contando 0 los puntuales) y días promedio solo entre los
+#   que tardaron. "clients" = los 20 peores por días promedio, con su % de atraso
+#   y lo que tienen vencido hoy. Se cuenta desde la fecha de vencimiento vigente
+#   (si se prorrogó, desde la nueva). Garantías y anticipos no cuentan.
+curl "http://localhost:8101/api/dashboard/delinquency?months=12" \
+  -H "Authorization: Bearer $TOKEN"
+
 # Cobros próximos: facturas pending/partial con dueDate dentro de N días (default 15)
 curl "http://localhost:8101/api/dashboard/upcoming?days=15" \
   -H "Authorization: Bearer $TOKEN"

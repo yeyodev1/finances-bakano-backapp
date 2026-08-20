@@ -40,6 +40,10 @@ export const getAging = asyncHandler(async (_req: AuthRequest, res: Response) =>
   res.json({ items: await dashboardService.agingBuckets() });
 });
 
+export const getDelinquency = asyncHandler(async (req: AuthRequest, res: Response) => {
+  res.json(await dashboardService.delinquencyReport(numberOf(req, "months", 12)));
+});
+
 export const getUpcoming = asyncHandler(async (req: AuthRequest, res: Response) => {
   res.json(await dashboardService.upcomingCollections(numberOf(req, "days", 15)));
 });
