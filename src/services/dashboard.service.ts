@@ -20,6 +20,7 @@ import {
 } from "./dashboard.aggregations";
 import { idealMonthlyAmount } from "./client.lifecycle.service";
 import { churnReport } from "./dashboard.churn";
+import { delinquencyReport } from "./dashboard.delinquency";
 import { accessStatusCounts } from "./access.status.service";
 
 function ensurePeriod(period?: string): string {
@@ -278,5 +279,6 @@ export const dashboardService = {
   overdueList,
   overdueClientsForPeriod,
   churnReport,
+  delinquencyReport,
   EXCLUDED_STATUSES,
 };

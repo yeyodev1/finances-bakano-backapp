@@ -6,6 +6,7 @@ import {
   getCashflow,
   getCollected,
   getChurn,
+  getDelinquency,
   getMethodBreakdown,
   getOverdue,
   getRevenueSeries,
@@ -30,5 +31,6 @@ dashboardRouter.get("/collected", getCollected);
 dashboardRouter.get("/upcoming", getUpcoming);
 dashboardRouter.get("/overdue", getOverdue);
 dashboardRouter.get("/churn", getChurn);
+dashboardRouter.get("/delinquency", getDelinquency);
 
 export default dashboardRouter;
