@@ -666,12 +666,66 @@ curl -X POST http://localhost:8101/api/sales/6790ab12cd34ef5678901234/reopen \
   -H "Authorization: Bearer $TOKEN"
 ```
 
+### Tipo de cliente y objetivo de venta mensual
+
+Cada venta puede llevar `categoryId` (tipo de cliente: restaurante, gimnasio… las mismas
+categorías de `/clients/categories`). Si no se manda y la venta está enlazada a un cliente,
+se hereda el tipo del cliente. Sin tipo, la venta queda **sin clasificar** y no suma a ninguna
+línea del objetivo hasta que se ubique.
+
+El **objetivo del mes** dice qué tipo de cliente hay que buscar, cuántos y por cuánto. Es uno
+por período y se reemplaza completo en cada `PUT`. El avance cruza el objetivo con las ventas
+no perdidas cuyo `agreedAt` cae en el mes.
+
+```bash
+# Registrar la venta indicando el tipo de cliente
+curl -X POST http://localhost:8101/api/sales \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"businessName":"Gym Fuerza","categoryId":"66f1c0ffee0000000000a001","amount":400,"frequency":"unico","firstChargeDate":"2026-09-05","soldBy":"665f0a1b2c3d4e5f60718293","ownerId":"665f0a1b2c3d4e5f60718295"}'
+
+# Ubicar (o reubicar) una venta en un tipo. "categoryId": null la deja sin clasificar.
+curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/category \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"categoryId":"66f1c0ffee0000000000a001"}'
+
+# Listar solo las que faltan ubicar
+curl "http://localhost:8101/api/sales?uncategorized=true" -H "Authorization: Bearer $TOKEN"
+
+# Fijar el objetivo del mes (reemplaza las líneas anteriores). Una categoría no se repite;
+# cada línea necesita targetCount o targetAmount mayor a cero.
+curl -X PUT http://localhost:8101/api/sales/goals/2026-09 \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"lines":[
+        {"categoryId":"66f1c0ffee0000000000a001","targetCount":5,"targetAmount":2000},
+        {"categoryId":"66f1c0ffee0000000000a002","targetCount":3,"targetAmount":1200,"notes":"Prioridad: zona norte"}
+      ],"notes":"Meta que pasó ventas para septiembre"}'
+
+# Leer el objetivo tal cual se guardó
+curl http://localhost:8101/api/sales/goals/2026-09 -H "Authorization: Bearer $TOKEN"
+
+# Avance del mes
+curl http://localhost:8101/api/sales/goals/2026-09/progress -H "Authorization: Bearer $TOKEN"
+```
+
+`GET /sales/goals/:period/progress` devuelve:
+
+- `totals`: `targetCount`/`targetAmount` (la meta), `soldCount`/`soldAmount` (todo lo vendido
+  en el mes), `inGoalCount`/`inGoalAmount` (solo lo que cae en una línea), `countPct`/`amountPct`
+  y `unclassifiedCount`/`unclassifiedAmount`.
+- `lines[]`: por tipo de cliente del objetivo, meta vs. vendido, `remainingCount`,
+  `remainingAmount`, porcentajes y las ventas que suman (`sales[]`).
+- `outside[]`: ventas con un tipo que **no** está en el objetivo, agrupadas por tipo. Cuentan en
+  `soldAmount` pero en ninguna línea; sirven para decidir si se abre una línea nueva.
+- `unclassified[]`: ventas sin tipo. Hay que ubicarlas con `PATCH /sales/:id/category`.
+- `categories[]`: tipos activos, para ubicar ventas o añadir líneas.
+
 `GET /sales/summary` devuelve, dentro de `newSales`: `recurringSold` y `oneOffSold` (lo vendido
 separado por naturaleza) y `missingInvoice` (cuántas ventas piden factura y siguen sin número).
 
 Cada mutación deja entrada en el `history` embebido de la venta **y** en el `AuditLog`
 (`sale.create`, `sale.installment.paid`, `sale.installment.reschedule`, `sale.owner.change`,
-`sale.items.update`, `sale.billing.update`, `sale.lost`). Escribir requiere rol `admin` o
+`sale.items.update`, `sale.billing.update`, `sale.category.change`, `sale.lost`; el objetivo
+deja `sale.goal.save`). Escribir requiere rol `admin` o
 `superadmin`; leer basta con estar autenticado.
 
 ---

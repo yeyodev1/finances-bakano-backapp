@@ -2,6 +2,7 @@ import { FilterQuery, Types } from "mongoose";
 import {
   AuditLog,
   Client,
+  ClientCategory,
   ISale,
   ISaleBilling,
   ISaleInstallment,
@@ -27,6 +28,9 @@ export interface SaleListQuery {
   ownerId?: string;
   soldBy?: string;
   clientId?: string;
+  categoryId?: string;
+  /** Solo las que no tienen tipo de cliente asignado. */
+  uncategorized?: boolean;
   q?: string;
   /** Solo las que tienen alguna cuota vencida sin cobrar. */
   overdueOnly?: boolean;
@@ -39,6 +43,8 @@ export interface SaleListQuery {
 export interface CreateSaleInput {
   businessName: string;
   clientId?: string | null;
+  /** Tipo de cliente. Si no viene y el cliente existe, se hereda del cliente. */
+  categoryId?: string | null;
   contactName?: string;
   contactEmail?: string;
   contactPhone?: string;
@@ -187,6 +193,17 @@ async function findSale(id: string): Promise<ISale> {
   return sale;
 }
 
+/** Devuelve id + nombre de la categoría, o null si no se indicó. */
+async function resolveCategory(
+  id?: string | null
+): Promise<{ categoryId: Types.ObjectId; categoryName: string } | null> {
+  if (!id) return null;
+  if (!Types.ObjectId.isValid(id)) throw new CustomError("Tipo de cliente inválido", 400);
+  const category = await ClientCategory.findById(id).select("name isActive");
+  if (!category) throw new CustomError("Tipo de cliente no encontrado", 404);
+  return { categoryId: category._id, categoryName: category.name };
+}
+
 async function resolveUserName(id: string, label: string): Promise<string> {
   const user = await User.findById(id).select("name isActive");
   if (!user) throw new CustomError(`${label} no encontrado`, 404);
@@ -206,10 +223,14 @@ async function create(input: CreateSaleInput, user?: JwtPayload): Promise<ISale>
     throw new CustomError("La fecha del primer cobro es inválida.", 400);
   }
 
+  // Sin tipo explícito, el de la ficha del cliente (si ya existe) sirve.
+  let categoryId: string | null | undefined = input.categoryId;
   if (input.clientId) {
-    const client = await Client.findById(input.clientId);
+    const client = await Client.findById(input.clientId).select("categoryId");
     if (!client) throw new CustomError("Cliente no encontrado", 404);
+    if (!categoryId && client.categoryId) categoryId = client.categoryId.toString();
   }
+  const category = await resolveCategory(categoryId);
 
   const [soldByName, ownerName] = await Promise.all([
     resolveUserName(input.soldBy, "El vendedor"),
@@ -222,6 +243,8 @@ async function create(input: CreateSaleInput, user?: JwtPayload): Promise<ISale>
   const sale = await Sale.create({
     businessName: input.businessName.trim(),
     clientId: input.clientId || null,
+    categoryId: category?.categoryId ?? null,
+    categoryName: category?.categoryName ?? null,
     contactName: input.contactName?.trim(),
     contactEmail: input.contactEmail?.trim(),
     contactPhone: input.contactPhone?.trim(),
@@ -268,10 +291,48 @@ async function create(input: CreateSaleInput, user?: JwtPayload): Promise<ISale>
     entityId: sale._id.toString(),
     userId: user?._id,
     userName: user?.name,
-    meta: { businessName: sale.businessName, amount, installments: count, ownerName },
+    meta: {
+      businessName: sale.businessName,
+      amount,
+      installments: count,
+      ownerName,
+      categoryName: category?.categoryName ?? null,
+    },
   });
 
   return sale;
+}
+
+/**
+ * Ubica (o reubica) la venta en un tipo de cliente. Es lo que mueve una venta
+ * "sin clasificar" a su línea del objetivo del mes. Con `null` la deja sin tipo.
+ */
+async function changeCategory(id: string, categoryId: string | null, user?: JwtPayload) {
+  const sale = await findSale(id);
+  const category = await resolveCategory(categoryId);
+  const previous = sale.categoryName ?? null;
+
+  sale.categoryId = category?.categoryId ?? null;
+  sale.categoryName = category?.categoryName ?? null;
+  pushHistory(
+    sale,
+    "category.changed",
+    `Tipo de cliente: ${previous ?? "sin clasificar"} → ${category?.categoryName ?? "sin clasificar"}`,
+    user,
+    { previous, categoryName: category?.categoryName ?? null }
+  );
+  await sale.save();
+
+  await AuditLog.create({
+    action: "sale.category.change",
+    entity: "Sale",
+    entityId: sale._id.toString(),
+    userId: user?._id,
+    userName: user?.name,
+    meta: { previous, categoryName: category?.categoryName ?? null, businessName: sale.businessName },
+  });
+
+  return applyOverdue(sale);
 }
 
 async function list(query: SaleListQuery = {}): Promise<PaginatedResult<ISale>> {
@@ -283,6 +344,8 @@ async function list(query: SaleListQuery = {}): Promise<PaginatedResult<ISale>> 
   if (query.ownerId) filter.ownerId = query.ownerId;
   if (query.soldBy) filter.soldBy = query.soldBy;
   if (query.clientId) filter.clientId = query.clientId;
+  if (query.categoryId) filter.categoryId = query.categoryId;
+  if (query.uncategorized) filter.categoryId = null;
   if (query.q) filter.businessName = { $regex: query.q, $options: "i" };
   if (query.from || query.to) {
     filter.agreedAt = {};
@@ -699,6 +762,7 @@ export const saleService = {
   payInstallment,
   rescheduleInstallment,
   changeOwner,
+  changeCategory,
   updateItems,
   updateBilling,
   markLost,

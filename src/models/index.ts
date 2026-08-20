@@ -13,6 +13,7 @@ export {
   ISaleItem,
   ISaleBilling,
 } from "./sale.model";
+export { SaleGoal, ISaleGoal, ISaleGoalLine } from "./saleGoal.model";
 export { StripeEvent, IStripeEvent } from "./stripeEvent.model";
 export { PaymentSubmission, IPaymentSubmission } from "./paymentSubmission.model";
 export { CrmConsumption, ICrmConsumption } from "./crmConsumption.model";

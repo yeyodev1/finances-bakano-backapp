@@ -5,7 +5,7 @@ import {
   SALE_LOST_REASONS,
   SALE_STATUSES,
 } from "../types/finance.types";
-import { booleanish, dateSchema, objectIdSchema, paginationSchema } from "./common.schema";
+import { booleanish, dateSchema, objectIdSchema, paginationSchema, periodSchema } from "./common.schema";
 
 /** Un concepto vendido: qué es, qué incluye y a qué precio se cerró. */
 export const saleItemSchema = z.object({
@@ -37,6 +37,8 @@ export const saleListSchema = z.object({
   ownerId: objectIdSchema.optional(),
   soldBy: objectIdSchema.optional(),
   clientId: objectIdSchema.optional(),
+  categoryId: objectIdSchema.optional(),
+  uncategorized: booleanish.optional(),
   q: z.string().trim().optional(),
   overdueOnly: booleanish.optional(),
   from: dateSchema.optional(),
@@ -48,6 +50,7 @@ export const createSaleSchema = z
   .object({
     businessName: z.string().trim().min(2, "Indica el nombre del negocio."),
     clientId: objectIdSchema.nullable().optional(),
+    categoryId: objectIdSchema.nullable().optional(),
     contactName: z.string().trim().optional(),
     contactEmail: z.string().trim().email("Correo inválido").optional().or(z.literal("")),
     contactPhone: z.string().trim().optional(),
@@ -86,6 +89,27 @@ export const rescheduleInstallmentSchema = z.object({
 
 export const changeSaleOwnerSchema = z.object({
   ownerId: objectIdSchema,
+});
+
+/** `null` deja la venta sin tipo de cliente. */
+export const changeSaleCategorySchema = z.object({
+  categoryId: objectIdSchema.nullable(),
+});
+
+export const goalPeriodParamSchema = z.object({ period: periodSchema });
+
+export const saveSaleGoalSchema = z.object({
+  lines: z
+    .array(
+      z.object({
+        categoryId: objectIdSchema,
+        targetCount: z.coerce.number().int().min(0).max(10000).optional(),
+        targetAmount: z.coerce.number().min(0).optional(),
+        notes: z.string().trim().max(300).optional(),
+      })
+    )
+    .max(50),
+  notes: z.string().trim().max(1000).optional(),
 });
 
 export const loseSaleSchema = z.object({
