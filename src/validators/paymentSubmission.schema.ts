@@ -30,3 +30,7 @@ export const portalCheckoutSchema = z.object({
   invoiceId: objectIdSchema,
   returnUrl: z.string().trim().url("returnUrl debe ser una URL válida"),
 });
+
+export const portalCardUpdateSchema = z.object({
+  returnUrl: z.string().trim().url("returnUrl debe ser una URL válida"),
+});

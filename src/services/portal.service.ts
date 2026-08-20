@@ -73,6 +73,9 @@ async function getBilling(workspaceId: string) {
       totalPaid,
       openInvoices: open.length,
       stripeEnabled: stripeService.isConfigured(),
+      // El boton "Cambiar tarjeta" solo aparece si el cliente ya paga por
+      // Stripe: sin customer no hay metodo de pago que actualizar.
+      canUpdateCard: stripeService.isConfigured() && Boolean(client.stripeCustomerId),
     },
     invoices,
     payments,
@@ -114,4 +117,21 @@ async function createCheckoutSession(input: {
   });
 }
 
-export const portalService = { getBilling, createCheckoutSession, getClientForWorkspace };
+/**
+ * Sesion del Billing Portal (restringido) para que el cliente cambie la
+ * tarjeta de su suscripcion de Bakano sin pedirla por WhatsApp.
+ */
+async function createCardUpdateSession(input: { workspaceId: string; returnUrl: string }) {
+  const client = await getClientForWorkspace(input.workspaceId);
+  if (!client.stripeCustomerId) {
+    throw new CustomError("Este cliente aun no paga con tarjeta por Stripe", 409);
+  }
+  return stripeService.createCardUpdateSession(client.stripeCustomerId, input.returnUrl);
+}
+
+export const portalService = {
+  getBilling,
+  createCheckoutSession,
+  createCardUpdateSession,
+  getClientForWorkspace,
+};

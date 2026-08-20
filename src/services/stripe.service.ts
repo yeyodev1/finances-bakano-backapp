@@ -142,11 +142,63 @@ async function getChargeIdFromPaymentIntent(paymentIntentId: string): Promise<st
   return typeof latest === "string" ? latest : latest.id;
 }
 
+/**
+ * Configuracion del Billing Portal restringida a SOLO cambiar la tarjeta.
+ * El portal por defecto de Stripe deja cancelar la suscripcion y editar datos
+ * del customer; el cliente de Bakano solo debe poder actualizar su metodo de
+ * pago. Se crea una vez y se reusa (identificada por metadata.app).
+ */
+let cardUpdateConfigId: string | null = null;
+
+async function getCardUpdateConfigId(stripe: Stripe): Promise<string> {
+  if (cardUpdateConfigId) return cardUpdateConfigId;
+
+  const existing = await stripe.billingPortal.configurations.list({ limit: 100, active: true });
+  const found = existing.data.find((c) => c.metadata?.app === "finances-bakano-card-update");
+  if (found) {
+    cardUpdateConfigId = found.id;
+    return found.id;
+  }
+
+  const created = await stripe.billingPortal.configurations.create({
+    business_profile: { headline: "Bakano · Actualiza tu tarjeta" },
+    features: {
+      payment_method_update: { enabled: true },
+      invoice_history: { enabled: false },
+      customer_update: { enabled: false },
+      subscription_cancel: { enabled: false },
+      subscription_update: { enabled: false },
+    },
+    metadata: { app: "finances-bakano-card-update" },
+  });
+  cardUpdateConfigId = created.id;
+  return created.id;
+}
+
+/** Sesion del portal que aterriza directo en la pantalla de cambiar tarjeta. */
+async function createCardUpdateSession(
+  stripeCustomerId: string,
+  returnUrl: string
+): Promise<{ url: string }> {
+  const stripe = getClient();
+  const configuration = await getCardUpdateConfigId(stripe);
+
+  const session = await stripe.billingPortal.sessions.create({
+    customer: stripeCustomerId,
+    configuration,
+    return_url: returnUrl,
+    flow_data: { type: "payment_method_update" },
+  });
+
+  return { url: session.url };
+}
+
 export const stripeService = {
   isConfigured,
   listCustomers,
   listCharges,
   createCheckoutSession,
+  createCardUpdateSession,
   constructWebhookEvent,
   getChargeIdFromPaymentIntent,
 };

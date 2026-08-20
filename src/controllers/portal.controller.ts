@@ -22,6 +22,16 @@ export const checkout = asyncHandler(async (req: Request, res: Response) => {
   );
 });
 
+export const cardUpdate = asyncHandler(async (req: Request, res: Response) => {
+  const { returnUrl } = req.body;
+  res.status(201).json(
+    await portalService.createCardUpdateSession({
+      workspaceId: param(req, "workspaceId"),
+      returnUrl,
+    })
+  );
+});
+
 export const submit = asyncHandler(async (req: Request, res: Response) => {
   if (!req.file?.buffer) {
     throw new CustomError("Falta el comprobante de la transferencia", 400);

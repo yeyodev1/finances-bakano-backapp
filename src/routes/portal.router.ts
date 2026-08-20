@@ -3,7 +3,7 @@ import * as portalController from "../controllers/portal.controller";
 import { metricsKeyMiddleware } from "../middlewares/metricsKey.middleware";
 import { uploadDocument } from "../middlewares/upload.middleware";
 import { validate } from "../middlewares/validate.middleware";
-import { portalCheckoutSchema, portalSubmitSchema } from "../validators/paymentSubmission.schema";
+import { portalCardUpdateSchema, portalCheckoutSchema, portalSubmitSchema } from "../validators/paymentSubmission.schema";
 
 /**
  * Portal del cliente. metrics-backapp ya validó el JWT del usuario y su
@@ -18,6 +18,11 @@ portalRouter.post(
   "/workspaces/:workspaceId/checkout-session",
   validate(portalCheckoutSchema),
   portalController.checkout
+);
+portalRouter.post(
+  "/workspaces/:workspaceId/card-update-session",
+  validate(portalCardUpdateSchema),
+  portalController.cardUpdate
 );
 portalRouter.post(
   "/workspaces/:workspaceId/submissions",
