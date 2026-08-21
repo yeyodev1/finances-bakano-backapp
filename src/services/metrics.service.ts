@@ -228,9 +228,13 @@ async function setWorkspaceActive(
     throw new CustomError("El backend de métricas no está configurado", 503);
   }
 
+  // Métricas exige motivo al desactivar. Nunca se manda vacío: un corte sin
+  // motivo se rechaza allá y el moroso quedaría con acceso.
+  const finalReason = (reason ?? "").trim() || (isActive ? "Reactivado desde Finanzas" : "Falta de pago");
+
   try {
     const res = await request(() =>
-      getClient().patch(`${BASE_PATH}/${id}/active`, { isActive, reason })
+      getClient().patch(`${BASE_PATH}/${id}/active`, { isActive, reason: finalReason })
     );
 
     await AuditLog.create({
@@ -238,7 +242,7 @@ async function setWorkspaceActive(
       entity: "MetricsWorkspace",
       entityId: id,
       level: "info",
-      meta: { isActive, reason },
+      meta: { isActive, reason: finalReason },
     });
 
     return unwrap<MetricsWorkspace>(res.data);
