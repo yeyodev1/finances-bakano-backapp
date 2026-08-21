@@ -691,13 +691,15 @@ curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/category 
 # Listar solo las que faltan ubicar
 curl "http://localhost:8101/api/sales?uncategorized=true" -H "Authorization: Bearer $TOKEN"
 
-# Fijar el objetivo del mes (reemplaza las líneas anteriores). Una categoría no se repite;
-# cada línea necesita targetCount o targetAmount mayor a cero.
+# Fijar el objetivo del mes (reemplaza las líneas anteriores). Una categoría no se repite.
+# Por línea: targetCount (cuántos clientes) y perClientAmount (ticket por cliente);
+# la meta en dinero de la línea (targetAmount) = targetCount × perClientAmount.
+# Si solo mandas targetAmount se acepta y se deriva el ticket.
 curl -X PUT http://localhost:8101/api/sales/goals/2026-09 \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"lines":[
-        {"categoryId":"66f1c0ffee0000000000a001","targetCount":5,"targetAmount":2000},
-        {"categoryId":"66f1c0ffee0000000000a002","targetCount":3,"targetAmount":1200,"notes":"Prioridad: zona norte"}
+        {"categoryId":"66f1c0ffee0000000000a001","targetCount":5,"perClientAmount":400},
+        {"categoryId":"66f1c0ffee0000000000a002","targetCount":3,"perClientAmount":400,"notes":"Prioridad: zona norte"}
       ],"notes":"Meta que pasó ventas para septiembre"}'
 
 # Leer el objetivo tal cual se guardó
