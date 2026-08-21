@@ -29,6 +29,9 @@ export interface GoalSaleRow {
   soldByName?: string;
   categoryId: string | null;
   categoryName: string | null;
+  /** Origen de la fila. Hoy siempre "sale": solo cuentan ventas registradas. */
+  source: "sale";
+  clientId?: string | null;
 }
 
 export interface GoalLineProgress {
@@ -75,6 +78,8 @@ function toRow(sale: ISale): GoalSaleRow {
     soldByName: sale.soldByName,
     categoryId: sale.categoryId ? sale.categoryId.toString() : null,
     categoryName: sale.categoryName ?? null,
+    source: "sale",
+    clientId: sale.clientId ? sale.clientId.toString() : null,
   };
 }
 
@@ -211,8 +216,8 @@ async function progress(period?: string) {
   let soldCount = 0;
   let soldAmount = 0;
 
-  for (const sale of sales) {
-    const row = toRow(sale);
+  for (const row of sales.map(toRow)) {
+    const sale = { amount: row.amount };
     soldCount += 1;
     soldAmount += sale.amount;
 

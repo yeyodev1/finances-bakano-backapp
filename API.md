@@ -49,7 +49,13 @@ curl -X POST http://localhost:8101/api/auth/change-password \
 
 ---
 
-## Usuarios (`/users`) — solo `superadmin`, salvo `GET /users/me`
+## Usuarios (`/users`) — solo `superadmin`, salvo `GET /users/me` y `GET /users/directory`
+
+```bash
+# Directorio (cualquier autenticado): usuarios activos con id, nombre, correo, foto y rol.
+# Es lo que usa Ventas para elegir vendedor y responsable de cobro.
+curl http://localhost:8101/api/users/directory -H "Authorization: Bearer $TOKEN"
+```
 
 ```bash
 # Mi perfil (cualquier rol autenticado)
@@ -719,6 +725,12 @@ curl http://localhost:8101/api/sales/goals/2026-09/progress -H "Authorization: B
 - `outside[]`: ventas con un tipo que **no** está en el objetivo, agrupadas por tipo. Cuentan en
   `soldAmount` pero en ninguna línea; sirven para decidir si se abre una línea nueva.
 - `unclassified[]`: ventas sin tipo. Hay que ubicarlas con `PATCH /sales/:id/category`.
+- Solo cuentan **ventas registradas**. Un cliente que ya existe en la plataforma se registra
+  igual como venta (eligiéndolo en "¿Ya es cliente?") para que sume al objetivo; el alta del
+  cliente por sí sola no cuenta, porque la base entera se importó en un solo mes.
+
+`GET /dashboard/summary` incluye `salesGoal` (`targetAmount`, `soldAmount`, `amountPct`,
+`targetCount`, `soldCount`, `idealIfMet` = ideal mensual + meta) para leer la meta junto al MRR.
 - `categories[]`: tipos activos, para ubicar ventas o añadir líneas.
 
 `GET /sales/summary` devuelve, dentro de `newSales`: `recurringSold` y `oneOffSold` (lo vendido

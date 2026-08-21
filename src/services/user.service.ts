@@ -68,6 +68,15 @@ async function list(query: UserListQuery = {}): Promise<PaginatedResult<IUser>> 
   return { items, total, page, limit, pages: Math.ceil(total / limit) || 1 };
 }
 
+/**
+ * Directorio para elegir vendedor o responsable de cobro. Lo ve cualquier
+ * usuario autenticado: sin esto, un admin que registra una venta no tiene a
+ * quién asignar (el listado completo es solo de superadmin).
+ */
+async function directory() {
+  return User.find({ isActive: true }).select("name email photoUrl role").sort({ name: 1 }).lean();
+}
+
 async function getById(id: string) {
   const user = await User.findById(id);
   if (!user) throw new CustomError("Usuario no encontrado", 404);
@@ -140,4 +149,4 @@ async function remove(id: string, actingUserId?: string) {
   return { message: "Usuario eliminado correctamente" };
 }
 
-export const userService = { list, getById, create, update, toggleActive, remove };
+export const userService = { list, directory, getById, create, update, toggleActive, remove };
