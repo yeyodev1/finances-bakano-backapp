@@ -10,7 +10,9 @@ export interface ISaleGoalLine {
   categoryName: string;
   /** Cuántos clientes de este tipo hay que cerrar. */
   targetCount: number;
-  /** Cuánto dinero (en ventas acordadas) debería salir de ellos. */
+  /** Ticket esperado por cliente (la mensualidad que se suele cerrar). */
+  perClientAmount: number;
+  /** Meta de la línea en dinero: targetCount × perClientAmount. */
   targetAmount: number;
   notes?: string;
 }
@@ -37,6 +39,7 @@ const lineSchema = new Schema<ISaleGoalLine>(
     categoryId: { type: Schema.Types.ObjectId, ref: "ClientCategory", required: true },
     categoryName: { type: String, required: true, trim: true },
     targetCount: { type: Number, required: true, min: 0, default: 0 },
+    perClientAmount: { type: Number, required: true, min: 0, default: 0 },
     targetAmount: { type: Number, required: true, min: 0, default: 0 },
     notes: { type: String, trim: true },
   },

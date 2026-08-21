@@ -104,6 +104,7 @@ export const saveSaleGoalSchema = z.object({
       z.object({
         categoryId: objectIdSchema,
         targetCount: z.coerce.number().int().min(0).max(10000).optional(),
+        perClientAmount: z.coerce.number().min(0).optional(),
         targetAmount: z.coerce.number().min(0).optional(),
         notes: z.string().trim().max(300).optional(),
       })

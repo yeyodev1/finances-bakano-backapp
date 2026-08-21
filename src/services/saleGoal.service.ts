@@ -7,6 +7,9 @@ import { endOfPeriod, isValidPeriod, startOfPeriod, toPeriod } from "../utils/da
 export interface SaleGoalLineInput {
   categoryId: string;
   targetCount?: number;
+  /** Ticket por cliente. Si viene, la meta de la línea es count × ticket. */
+  perClientAmount?: number;
+  /** Solo se usa si no viene perClientAmount (compatibilidad). */
   targetAmount?: number;
   notes?: string;
 }
@@ -34,6 +37,7 @@ export interface GoalLineProgress {
   color?: string;
   icon?: string;
   targetCount: number;
+  perClientAmount: number;
   targetAmount: number;
   soldCount: number;
   soldAmount: number;
@@ -100,15 +104,24 @@ async function save(period: string, input: SaveSaleGoalInput, user?: JwtPayload)
     if (!category) throw new CustomError(`La línea ${i + 1} apunta a un tipo que no existe.`, 404);
 
     const targetCount = Math.max(Math.floor(Number(line.targetCount) || 0), 0);
-    const targetAmount = round(Math.max(Number(line.targetAmount) || 0, 0));
+    let perClientAmount = round(Math.max(Number(line.perClientAmount) || 0, 0));
+    // La meta en dinero es cuántos × cuánto por cliente. Si solo mandan el total
+    // (clientes viejos del API), se deriva el ticket para que el editor lo muestre.
+    let targetAmount = perClientAmount > 0
+      ? round(targetCount * perClientAmount)
+      : round(Math.max(Number(line.targetAmount) || 0, 0));
+    if (perClientAmount === 0 && targetAmount > 0 && targetCount > 0) {
+      perClientAmount = round(targetAmount / targetCount);
+    }
     if (targetCount === 0 && targetAmount === 0) {
-      throw new CustomError(`Indica cuántos o cuánto para "${category.name}".`, 400);
+      throw new CustomError(`Indica cuántos y cuánto por cliente para "${category.name}".`, 400);
     }
 
     lines.push({
       categoryId: category._id,
       categoryName: category.name,
       targetCount,
+      perClientAmount,
       targetAmount,
       notes: line.notes?.trim() || undefined,
     });
@@ -135,7 +148,12 @@ async function save(period: string, input: SaveSaleGoalInput, user?: JwtPayload)
     userName: user?.name,
     meta: {
       period: target,
-      lines: lines.map((l) => ({ categoryName: l.categoryName, targetCount: l.targetCount, targetAmount: l.targetAmount })),
+      lines: lines.map((l) => ({
+        categoryName: l.categoryName,
+        targetCount: l.targetCount,
+        perClientAmount: l.perClientAmount,
+        targetAmount: l.targetAmount,
+      })),
     },
   });
 
@@ -175,6 +193,7 @@ async function progress(period?: string) {
       color: cat?.color,
       icon: cat?.icon,
       targetCount: line.targetCount,
+      perClientAmount: line.perClientAmount ?? (line.targetCount ? round(line.targetAmount / line.targetCount) : 0),
       targetAmount: line.targetAmount,
       soldCount: 0,
       soldAmount: 0,
