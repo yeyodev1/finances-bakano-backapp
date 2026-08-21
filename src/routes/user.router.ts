@@ -20,6 +20,8 @@ const userRouter = Router();
 userRouter.use(auth);
 
 userRouter.get("/me", authController.me);
+// Cualquier autenticado: para elegir vendedor / responsable de cobro.
+userRouter.get("/directory", userController.directory);
 
 userRouter.get("/", requireSuperadmin, validate(userListSchema, "query"), userController.list);
 userRouter.post("/", requireSuperadmin, validate(createUserSchema), userController.create);

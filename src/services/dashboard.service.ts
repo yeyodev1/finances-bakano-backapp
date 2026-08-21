@@ -21,6 +21,7 @@ import {
 import { idealMonthlyAmount } from "./client.lifecycle.service";
 import { churnReport } from "./dashboard.churn";
 import { delinquencyReport } from "./dashboard.delinquency";
+import { saleGoalService } from "./saleGoal.service";
 import { accessStatusCounts } from "./access.status.service";
 
 function ensurePeriod(period?: string): string {
@@ -38,11 +39,12 @@ function daysOverdueFrom(dueDate: Date): number {
 
 async function summary(period?: string) {
   const target = ensurePeriod(period);
-  const [totals, counters, ideal, accessCounts] = await Promise.all([
+  const [totals, counters, ideal, accessCounts, goal] = await Promise.all([
     periodTotals(target),
     clientCounters(target),
     idealMonthlyAmount(),
     accessStatusCounts(),
+    saleGoalService.progress(target).catch(() => null),
   ]);
 
   const collectionRate =
@@ -58,6 +60,19 @@ async function summary(period?: string) {
     collectionRate,
     ...counters,
     ...accessCounts,
+    /** Objetivo de ventas del mes, para leerlo junto al ideal mensual. */
+    salesGoal: goal
+      ? {
+          hasGoal: goal.hasGoal,
+          targetAmount: goal.totals.targetAmount,
+          soldAmount: goal.totals.inGoalAmount,
+          targetCount: goal.totals.targetCount,
+          soldCount: goal.totals.inGoalCount,
+          amountPct: goal.totals.amountPct,
+          /** Ideal mensual si se cumple la meta: lo de hoy + lo que la meta suma en mensualidades. */
+          idealIfMet: Math.round((ideal + goal.totals.targetAmount) * 100) / 100,
+        }
+      : null,
   };
 }
 

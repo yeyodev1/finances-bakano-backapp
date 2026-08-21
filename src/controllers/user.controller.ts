@@ -4,6 +4,10 @@ import { userService, UserInput, UserListQuery } from "../services/user.service"
 import { AuthRequest } from "../types/AuthRequest";
 import { param } from "../utils/expressHandler.util";
 
+export const directory = asyncHandler(async (_req: AuthRequest, res: Response) => {
+  res.status(200).json({ items: await userService.directory() });
+});
+
 export const list = asyncHandler(async (req: AuthRequest, res: Response) => {
   const result = await userService.list(req.query as UserListQuery);
   res.status(200).json(result);
