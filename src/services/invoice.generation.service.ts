@@ -18,6 +18,12 @@ import { normalizeText } from "../utils/similarity.util";
 export interface GenerateOptions {
   clientIds?: string[];
   force?: boolean;
+  /**
+   * Solo sincroniza cobros que ya existen; no crea ninguno nuevo. Lo usa la
+   * edición del cliente: cambiar el monto ajusta el cobro abierto del mes, pero
+   * no debe inventar un cobro que nadie generó.
+   */
+  onlyExisting?: boolean;
 }
 
 export interface BackfillOptions {
@@ -74,10 +80,12 @@ async function generateForPeriod(period: string, opts: GenerateOptions = {}) {
     throw new CustomError(`Período inválido: ${period}. Formato esperado YYYY-MM.`, 400);
   }
 
+  // Solo los clientes "cada mes" generan cobro automático. `special` (pago
+  // único / a convenir) y `no_charge` se cobran, si acaso, desde Ventas.
   const filter: FilterQuery<IClient> = {
     isActive: true,
     isArchived: { $ne: true },
-    billingType: { $ne: "no_charge" },
+    billingType: "monthly",
     $or: [{ amount: { $gt: 0 } }, { "splits.0": { $exists: true } }],
   };
   if (opts.clientIds?.length) filter._id = { $in: opts.clientIds };
@@ -152,6 +160,11 @@ async function generateForPeriod(period: string, opts: GenerateOptions = {}) {
         }
         await existing.save();
         updated += 1;
+        continue;
+      }
+
+      if (opts.onlyExisting) {
+        skipped += 1;
         continue;
       }
 
