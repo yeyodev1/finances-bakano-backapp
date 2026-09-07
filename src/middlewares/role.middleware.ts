@@ -22,3 +22,10 @@ export function requireRole(...roles: UserRole[]) {
 }
 
 export const requireSuperadmin = requireRole("superadmin");
+
+/**
+ * Quienes operan el sistema a diario: administración y equipo comercial.
+ * El Banco queda fuera a propósito: usa `requireRole("superadmin", "admin")`.
+ */
+export const STAFF_ROLES: UserRole[] = ["superadmin", "admin", "vendedor"];
+export const requireStaff = requireRole(...STAFF_ROLES);
