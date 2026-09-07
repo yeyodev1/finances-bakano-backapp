@@ -18,6 +18,7 @@ import {
 import { invoiceGenerationService } from "./invoice.generation.service";
 import { metricsService } from "./metrics.service";
 import { toPeriod } from "../utils/date.util";
+import { saleLinkService } from "./sale.link.service";
 
 export type ArchivedFilter = "true" | "false" | "all";
 
@@ -185,23 +186,27 @@ async function create(input: Partial<IClient>, userId?: string) {
     }
   }
 
-  // El cron mensual ya corrió para el período en curso, así que un alta a mitad
-  // de mes quedaba sin cobro hasta el mes siguiente: su primer pago no tenía
-  // contra qué registrarse y el cliente no aparecía en el histórico.
-  // `generateForPeriod` es idempotente y respeta startDate/billingStartPeriod,
-  // así que si al cliente no le toca facturar este mes simplemente no crea nada.
+  // Regla acordada con ventas: en Clientes solo se agrega el cliente (cuánto
+  // paga y qué día). El alta NO registra una venta ni genera el cobro del mes:
+  // la venta se registra únicamente en Ventas → Registrar venta, y el cobro
+  // mensual nace con el job del día 1 (o a mano con POST /invoices/generate).
+  // Antes el alta generaba el cobro del período en curso y, si el vendedor ya
+  // había registrado la venta, el mismo dinero aparecía dos veces.
+  //
+  // Si ya existe una venta abierta con el mismo nombre de negocio, se enlaza al
+  // cliente nuevo: así "la venta" y "el cliente" son la misma cosa y sus cuotas
+  // no se suman por partida doble con los cobros del cliente.
+  let linkedSales = 0;
   try {
-    await invoiceGenerationService.generateForPeriod(toPeriod(), {
-      clientIds: [client._id.toString()],
-    });
+    linkedSales = await saleLinkService.linkOpenSalesToClient(client, userId);
   } catch (error) {
-    // Nunca tumbar el alta por esto: el cobro se puede generar después a mano.
     console.error(
-      `[clients] No se pudo generar el primer cobro de ${client.name}:`,
+      `[clients] No se pudieron enlazar las ventas de ${client.name}:`,
       (error as Error).message
     );
   }
 
+  client.set("linkedSales", linkedSales, { strict: false });
   return client;
 }
 
@@ -228,11 +233,14 @@ async function update(id: string, input: Partial<IClient>) {
   // Si cambió el monto, los cobros divididos o el día de cobro, los cobros abiertos
   // del período en curso se regeneran con el valor nuevo; si no, la factura queda
   // con el monto viejo y el pago correspondiente no se puede registrar.
+  // `onlyExisting`: se ajusta lo que ya existe, nunca se crea un cobro nuevo
+  // desde la ficha del cliente (eso solo lo hace el job mensual).
   if (touchesBilling) {
     try {
       await invoiceGenerationService.generateForPeriod(toPeriod(), {
         clientIds: [client._id.toString()],
         force: true,
+        onlyExisting: true,
       });
     } catch (error) {
       // Nunca tumbar la edición por esto: el cobro se puede regenerar después a mano.
