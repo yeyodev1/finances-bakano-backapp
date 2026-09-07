@@ -11,6 +11,7 @@
     "seed:clients": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/seedClients.script.ts",
     "seed:admin": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/seedAdmin.script.ts",
     "seed:dev": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/seedDev.script.ts",
+    "reingreso:agosto": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/reingresoAgosto.script.ts",
     "format": "prettier --write 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'"
   },
   "dependencies": {
