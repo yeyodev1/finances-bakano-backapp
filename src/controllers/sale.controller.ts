@@ -75,6 +75,11 @@ export const changeOwner = asyncHandler(async (req: AuthRequest, res: Response) 
   res.status(200).json(await saleService.changeOwner(param(req, "id"), ownerId, req.user));
 });
 
+export const linkClient = asyncHandler(async (req: AuthRequest, res: Response) => {
+  const { clientId } = req.body as { clientId: string | null };
+  res.status(200).json(await saleService.linkClient(param(req, "id"), clientId ?? null, req.user));
+});
+
 export const changeCategory = asyncHandler(async (req: AuthRequest, res: Response) => {
   const { categoryId } = req.body as { categoryId: string | null };
   res.status(200).json(await saleService.changeCategory(param(req, "id"), categoryId ?? null, req.user));
