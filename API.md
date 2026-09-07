@@ -51,6 +51,10 @@ curl -X POST http://localhost:8101/api/auth/change-password \
 
 ## Usuarios (`/users`) — solo `superadmin`, salvo `GET /users/me` y `GET /users/directory`
 
+Roles: `superadmin`, `admin`, `vendedor`, `viewer`. `vendedor` es el equipo comercial:
+opera ventas, clientes y cobros igual que `admin`, pero **no ve el Banco** (`/mercury`).
+Las rutas de escritura usan `requireStaff` (superadmin + admin + vendedor).
+
 ```bash
 # Directorio (cualquier autenticado): usuarios activos con id, nombre, correo, foto y rol.
 # Es lo que usa Ventas para elegir vendedor y responsable de cobro.
@@ -109,14 +113,21 @@ curl http://localhost:8101/api/clients/stats -H "Authorization: Bearer $TOKEN"
 # Detalle
 curl http://localhost:8101/api/clients/665f0a1b2c3d4e5f60718293 -H "Authorization: Bearer $TOKEN"
 
-# Crear (cobro único)
+# Crear
 #
-# Al dar de alta un cliente se genera automáticamente su cobro del período en
-# curso, con el mismo motor que el job mensual (respeta `startDate`,
-# `billingStartPeriod` y los cobros divididos). Sin esto, un alta a mitad de mes
-# se quedaba sin cobro hasta el mes siguiente y su primer pago no tenía contra
-# qué registrarse. Si la generación falla no tumba el alta: queda en el log y el
-# cobro se puede generar después con `POST /invoices/generate` + `clientIds`.
+# Regla acordada con ventas (sept 2026): en Clientes SOLO se agrega el cliente,
+# cuánto paga y qué día. El alta NO registra una venta ni genera el cobro del
+# mes: la venta se registra únicamente en `POST /sales`, y el cobro mensual
+# nace con el job del día 1 (o a mano con `POST /invoices/generate` + `clientIds`).
+#
+# `billingType` no se asume: `monthly` (cada mes, genera cobro automático),
+# `special` (pago único / a convenir: NO genera cobro mensual; el cobro se
+# registra como venta con su fecha) o `no_charge` (no paga).
+#
+# Si ya existe una venta abierta (`acordada`/`cobrando`) sin cliente y con el
+# mismo nombre de negocio, el alta la enlaza (`sale.clientId`) y responde con
+# `linkedSales: <n>`. Así "la venta" y "el cliente" son la misma cosa y sus
+# cuotas no se suman dos veces (ver Ventas → enlace con cliente).
 curl -X POST http://localhost:8101/api/clients \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{
@@ -599,10 +610,20 @@ curl "http://localhost:8101/api/sales?status=acordada&overdueOnly=true" \
 
 # Cuánto dinero debe entrar: recurrente de clientes + ventas nuevas por cobrar,
 # con el desglose por responsable de cobro.
+#
+# Sin duplicar: si la venta está enlazada a un cliente (`clientId`) y ese
+# cliente ya tiene el cobro emitido del mes en que vence la cuota, la cuota no
+# suma a `pending`/`overdue`/`expectedTotal`; va en `newSales.coveredByClient`.
+# La misma regla aplica al pronóstico semanal (`GET /dashboard/cashflow`).
+# Y cuando se registra el pago del cobro del cliente (`POST /payments`) la
+# cuota de ese mes queda `cobrada` sola.
 curl http://localhost:8101/api/sales/summary -H "Authorization: Bearer $TOKEN"
 
-# Registrar una venta. "frequency": unico | semanal | quincenal | mensual | trimestral
+# Registrar una venta. Es el ÚNICO lugar donde se registra una venta (agregar
+# un cliente no la registra). "frequency": unico | semanal | quincenal | mensual | trimestral
 # Con "unico" se ignora installmentsCount. soldBy = quién cerró, ownerId = quién cobra.
+# Si no mandas `clientId` pero ya existe un cliente activo con ese nombre de
+# negocio (sin tildes/mayúsculas), la venta se enlaza sola a ese cliente.
 #
 # "items" es el desglose de lo vendido: el vendedor negocia la mensualidad (400,
 # 300, 250…) y suele sumar extras puntuales. Si vienen items, el total sale de su
@@ -654,6 +675,12 @@ curl -X POST http://localhost:8101/api/sales/6790ab12cd34ef5678901234/installmen
 curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/installments/1/reschedule \
   -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"newDueDate":"2026-10-20","reason":"Pidió dos semanas más"}'
+
+# Enlazar (o desenlazar con null) la venta con un cliente de la plataforma.
+# Es la forma de arreglar a mano un negocio que quedó dos veces (venta + cliente).
+curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/client \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"clientId":"665f0a1b2c3d4e5f60718293"}'
 
 # Reasignar quién debe cobrarla
 curl -X PATCH http://localhost:8101/api/sales/6790ab12cd34ef5678901234/owner \
@@ -1042,6 +1069,15 @@ falta migrar los documentos existentes ni el formulario de preferencias.
 
 Si `RESEND_API_KEY` está vacío no se envía nada: se loguea `[email] Resend no configurado` y se registra un `EmailLog` con `status: "failed"`. El servicio de correo nunca lanza excepciones hacia el controlador.
 
+### Reingreso de clientes de agosto 2026
+
+`pnpm reingreso:agosto -- --dry-run` (solo muestra) y `pnpm reingreso:agosto -- --seller=<email> --owner=<email>`.
+Vuelve a cargar los 12 clientes borrados el 24 ago con sus fechas reales, genera sus cobros
+de 2026-08 y 2026-09, y registra una venta por cada uno con `agreedAt` en agosto para que
+el objetivo de agosto los muestre. Idempotente (no duplica por nombre, workspace ni Stripe).
+S&K no se recarga (duplicado consolidado en Método SK). Los pagos previos no se recrean:
+el script lista cuáles tenían pago para registrarlo a mano.
+
 ### Scripts de seed
 
 ```bash
@@ -1234,7 +1270,8 @@ todos los clientes en esa situación, si los hay.
 ## Banco / Mercury (`/mercury`) — solo lectura
 
 Integración **read-only** con la API de Mercury (`https://api.mercury.com/api/v1`). El backend
-solo emite `GET`: no existe ninguna ruta que mueva dinero. Requiere rol `superadmin` o `admin`.
+solo emite `GET`: no existe ninguna ruta que mueva dinero. Requiere rol `superadmin` o `admin`:
+el rol `vendedor` (equipo comercial) **no** tiene acceso, ni en el menú ni por URL.
 
 Configuración (`.env`):
 
