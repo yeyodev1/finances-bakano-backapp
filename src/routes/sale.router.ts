@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as saleController from "../controllers/sale.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole } from "../middlewares/role.middleware";
+import { requireStaff } from "../middlewares/role.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { idParamSchema } from "../validators/common.schema";
 import {
@@ -12,6 +12,7 @@ import {
   goalPeriodParamSchema,
   saveSaleGoalSchema,
   installmentParamSchema,
+  linkSaleClientSchema,
   loseSaleSchema,
   payInstallmentSchema,
   rescheduleInstallmentSchema,
@@ -24,7 +25,7 @@ import {
 const auth = toHandler(authMiddleware);
 
 const saleRouter = Router();
-const canWrite = requireRole("superadmin", "admin");
+const canWrite = requireStaff;
 
 saleRouter.use(auth);
 
@@ -94,6 +95,13 @@ saleRouter.patch(
   validate(idParamSchema, "params"),
   validate(changeSaleCategorySchema),
   saleController.changeCategory
+);
+saleRouter.patch(
+  "/:id/client",
+  canWrite,
+  validate(idParamSchema, "params"),
+  validate(linkSaleClientSchema),
+  saleController.linkClient
 );
 saleRouter.post(
   "/:id/lose",
