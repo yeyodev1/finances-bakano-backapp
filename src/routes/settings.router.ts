@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole } from "../middlewares/role.middleware";
+import { requireStaff } from "../middlewares/role.middleware";
 import { uploadImage } from "../middlewares/upload.middleware";
 import {
   getAppSettings,
@@ -16,7 +16,7 @@ const settingsRouter = Router();
 
 settingsRouter.use(toHandler(authMiddleware));
 
-const canWrite = requireRole("superadmin", "admin");
+const canWrite = requireStaff;
 
 settingsRouter.get("/notifications", getNotificationSettings);
 settingsRouter.put("/notifications", canWrite, updateNotificationSettings);
