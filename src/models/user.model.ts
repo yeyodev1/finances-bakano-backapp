@@ -32,7 +32,7 @@ const userSchema = new Schema<IUser>(
     password: { type: String, required: true },
     role: {
       type: String,
-      enum: ["superadmin", "admin", "viewer"],
+      enum: ["superadmin", "admin", "vendedor", "viewer"],
       default: "admin",
     },
     isActive: { type: Boolean, default: true },
