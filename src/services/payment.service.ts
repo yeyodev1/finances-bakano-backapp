@@ -1,5 +1,6 @@
 import { FilterQuery } from "mongoose";
 import { AuditLog, Client, IInvoice, Invoice, IPayment, Payment } from "../models";
+import { saleLinkService } from "./sale.link.service";
 import { CustomError } from "../errors/customError.error";
 import { PaginatedResult, PaymentMethod, PaymentSource } from "../types/finance.types";
 import { JwtPayload } from "../types/AuthRequest";
@@ -148,6 +149,21 @@ async function register(input: RegisterPaymentInput, user?: JwtPayload) {
   invoice.status = invoice.paidAmount >= invoice.amount ? "paid" : "partial";
   invoice.paidAt = paidAt;
   await invoice.save();
+
+  // Si el cliente tiene una venta enlazada con cuota de este mismo mes, esa
+  // cuota se da por cobrada: es el mismo dinero, no se persigue dos veces.
+  if (invoice.status === "paid") {
+    try {
+      await saleLinkService.settleCoveredInstallments(
+        client._id,
+        invoice.period,
+        paidAt,
+        user?.name || input.registeredByName
+      );
+    } catch (error) {
+      console.error("[payment] No se pudo cerrar la cuota de la venta enlazada:", error);
+    }
+  }
 
   if (!isEarlyAdvance) {
     await maybeReactivateWorkspace(client._id, invoice._id);
