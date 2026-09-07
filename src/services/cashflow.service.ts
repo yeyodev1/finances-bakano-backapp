@@ -1,5 +1,6 @@
 import { Client, Invoice, Payment, Sale } from "../models";
 import { addDays, startOfDay } from "../utils/date.util";
+import { saleLinkService } from "./sale.link.service";
 
 /**
  * Pronóstico de cobranza semanal.
@@ -207,9 +208,15 @@ async function forecast(weeks = 8) {
       .select("amount paidAmount dueDate clientName period status")
       .lean(),
     Sale.find({ status: { $in: ["acordada", "cobrando"] } })
-      .select("businessName installments ownerName")
+      .select("businessName installments ownerName clientId")
       .lean(),
   ]);
+
+  // Una venta enlazada a un cliente con el cobro del mes ya emitido no se cuenta
+  // dos veces: la factura ya está en `invoices`.
+  const invoiced = await saleLinkService.invoicedPeriodsByClient(
+    sales.filter((s) => s.clientId).map((s) => String(s.clientId))
+  );
 
   const buckets: CashflowWeek[] = Array.from({ length: totalWeeks }, (_, index) => {
     const start = addDays(firstMonday, index * 7);
@@ -272,6 +279,7 @@ async function forecast(weeks = 8) {
   for (const sale of sales) {
     for (const item of sale.installments ?? []) {
       if (item.status === "cobrada") continue;
+      if (saleLinkService.isInstallmentCovered(sale, item, invoiced)) continue;
       place(new Date(item.dueDate), Number(item.amount || 0), "sales");
     }
   }
