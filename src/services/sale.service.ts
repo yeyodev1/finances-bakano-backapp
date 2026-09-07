@@ -22,6 +22,7 @@ import {
 } from "../types/finance.types";
 import { startOfDay } from "../utils/date.util";
 import { idealMonthlyAmount } from "./client.lifecycle.service";
+import { saleLinkService } from "./sale.link.service";
 
 export interface SaleListQuery {
   status?: SaleStatus;
@@ -225,10 +226,21 @@ async function create(input: CreateSaleInput, user?: JwtPayload): Promise<ISale>
 
   // Sin tipo explícito, el de la ficha del cliente (si ya existe) sirve.
   let categoryId: string | null | undefined = input.categoryId;
-  if (input.clientId) {
-    const client = await Client.findById(input.clientId).select("categoryId");
+  let clientId: string | null = input.clientId || null;
+  let linkedByName = false;
+  if (clientId) {
+    const client = await Client.findById(clientId).select("categoryId");
     if (!client) throw new CustomError("Cliente no encontrado", 404);
     if (!categoryId && client.categoryId) categoryId = client.categoryId.toString();
+  } else {
+    // El vendedor escribió el nombre en vez de elegir el cliente: si ya existe
+    // uno con ese nombre, se enlaza para que no queden dos "Génesis".
+    const existing = await saleLinkService.findClientByBusinessName(input.businessName);
+    if (existing) {
+      clientId = existing._id.toString();
+      linkedByName = true;
+      if (!categoryId && existing.categoryId) categoryId = existing.categoryId.toString();
+    }
   }
   const category = await resolveCategory(categoryId);
 
@@ -242,7 +254,7 @@ async function create(input: CreateSaleInput, user?: JwtPayload): Promise<ISale>
 
   const sale = await Sale.create({
     businessName: input.businessName.trim(),
-    clientId: input.clientId || null,
+    clientId,
     categoryId: category?.categoryId ?? null,
     categoryName: category?.categoryName ?? null,
     contactName: input.contactName?.trim(),
@@ -282,6 +294,18 @@ async function create(input: CreateSaleInput, user?: JwtPayload): Promise<ISale>
         by: user?._id ? new Types.ObjectId(user._id) : undefined,
         byName: user?.name,
       },
+      ...(linkedByName
+        ? [
+            {
+              action: "client.linked",
+              detail: "Enlazada por nombre a un cliente que ya existía",
+              at: new Date(),
+              by: user?._id ? new Types.ObjectId(user._id) : undefined,
+              byName: user?.name,
+              meta: { clientId, auto: true },
+            },
+          ]
+        : []),
     ],
   });
 
@@ -301,6 +325,48 @@ async function create(input: CreateSaleInput, user?: JwtPayload): Promise<ISale>
   });
 
   return sale;
+}
+
+/**
+ * Enlaza (o desenlaza con `null`) la venta con un cliente de la plataforma.
+ * Es la forma de arreglar a mano un negocio que quedó dos veces: la venta y el
+ * cliente pasan a ser lo mismo y sus cuotas no se cuentan doble.
+ */
+async function linkClient(id: string, clientId: string | null, user?: JwtPayload) {
+  const sale = await findSale(id);
+  const previous = sale.clientId ? sale.clientId.toString() : null;
+
+  if (clientId) {
+    if (!Types.ObjectId.isValid(clientId)) throw new CustomError("Cliente inválido", 400);
+    const client = await Client.findById(clientId).select("name categoryId");
+    if (!client) throw new CustomError("Cliente no encontrado", 404);
+    sale.clientId = client._id;
+    if (!sale.categoryId && client.categoryId) {
+      const category = await resolveCategory(client.categoryId.toString());
+      sale.categoryId = category?.categoryId ?? null;
+      sale.categoryName = category?.categoryName ?? null;
+    }
+    pushHistory(sale, "client.linked", `Enlazada al cliente ${client.name}`, user, {
+      previous,
+      clientId,
+      clientName: client.name,
+    });
+  } else {
+    sale.clientId = null;
+    pushHistory(sale, "client.unlinked", "Desenlazada del cliente", user, { previous });
+  }
+  await sale.save();
+
+  await AuditLog.create({
+    action: "sale.client.link",
+    entity: "Sale",
+    entityId: sale._id.toString(),
+    userId: user?._id,
+    userName: user?.name,
+    meta: { previous, clientId, businessName: sale.businessName },
+  });
+
+  return applyOverdue(sale);
 }
 
 /**
@@ -681,6 +747,12 @@ async function summary(from?: Date, to?: Date) {
     idealMonthlyAmount(),
   ]);
 
+  // Cuotas de ventas enlazadas a un cliente cuyo mes ya tiene cobro emitido: ese
+  // dinero ya está en "recurrente" (y en Cobros del mes); no se suma dos veces.
+  const invoiced = await saleLinkService.invoicedPeriodsByClient(
+    sales.filter((s) => s.clientId).map((s) => String(s.clientId))
+  );
+
   const today = startOfDay(new Date());
   let agreed = 0;
   let collected = 0;
@@ -692,6 +764,8 @@ async function summary(from?: Date, to?: Date) {
   let oneOffSold = 0;
   /** Ventas que piden factura y todavía no tienen número cargado. */
   let missingInvoice = 0;
+  /** Cuotas que ya están como cobro del cliente: se muestran, no se suman. */
+  let coveredByClient = 0;
 
   const byOwnerMap = new Map<string, { ownerName: string; pending: number; overdue: number; count: number }>();
 
@@ -721,6 +795,10 @@ async function summary(from?: Date, to?: Date) {
         collected += item.paidAmount || item.amount;
         continue;
       }
+      if (saleLinkService.isInstallmentCovered(sale, item, invoiced)) {
+        coveredByClient += item.amount;
+        continue;
+      }
       pending += item.amount;
       owner.pending += item.amount;
       if (startOfDay(item.dueDate) < today) {
@@ -746,6 +824,8 @@ async function summary(from?: Date, to?: Date) {
       recurringSold: round(recurringSold),
       oneOffSold: round(oneOffSold),
       missingInvoice,
+      /** Pendiente de ventas que ya vive como cobro del cliente (no se duplica). */
+      coveredByClient: round(coveredByClient),
     },
     /** Lo que debería entrar este mes: recurrente + lo pendiente de ventas nuevas. */
     expectedTotal: round(recurring + pending),
@@ -763,6 +843,7 @@ export const saleService = {
   rescheduleInstallment,
   changeOwner,
   changeCategory,
+  linkClient,
   updateItems,
   updateBilling,
   markLost,
