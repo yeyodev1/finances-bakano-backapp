@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { booleanish, paginationSchema } from "./common.schema";
 
-const roleSchema = z.enum(["superadmin", "admin", "viewer"]);
+const roleSchema = z.enum(["superadmin", "admin", "vendedor", "viewer"]);
 
 export const userListSchema = z.object({
   q: z.string().trim().optional(),
