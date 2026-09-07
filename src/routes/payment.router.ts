@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as paymentController from "../controllers/payment.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole } from "../middlewares/role.middleware";
+import { requireRole, requireStaff } from "../middlewares/role.middleware";
 import { uploadDocument } from "../middlewares/upload.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { idParamSchema } from "../validators/common.schema";
@@ -15,7 +15,7 @@ import {
 const auth = toHandler(authMiddleware);
 
 const paymentRouter = Router();
-const canWrite = requireRole("superadmin", "admin");
+const canWrite = requireStaff;
 
 paymentRouter.use(auth);
 
