@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as invoiceController from "../controllers/invoice.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole } from "../middlewares/role.middleware";
+import { requireStaff } from "../middlewares/role.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { idParamSchema } from "../validators/common.schema";
 import {
@@ -18,7 +18,7 @@ import {
 const auth = toHandler(authMiddleware);
 
 const invoiceRouter = Router();
-const canWrite = requireRole("superadmin", "admin");
+const canWrite = requireStaff;
 
 invoiceRouter.use(auth);
 
