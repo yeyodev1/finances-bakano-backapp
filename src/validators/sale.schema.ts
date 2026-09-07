@@ -96,6 +96,11 @@ export const changeSaleCategorySchema = z.object({
   categoryId: objectIdSchema.nullable(),
 });
 
+/** `null` desenlaza la venta del cliente. */
+export const linkSaleClientSchema = z.object({
+  clientId: objectIdSchema.nullable(),
+});
+
 export const goalPeriodParamSchema = z.object({ period: periodSchema });
 
 export const saveSaleGoalSchema = z.object({
