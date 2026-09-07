@@ -1,6 +1,10 @@
 import { Request } from "express";
 
-export type UserRole = "superadmin" | "admin" | "viewer";
+/**
+ * `vendedor`: el equipo comercial. Registra ventas y clientes como un admin,
+ * pero no ve el Banco (saldos y movimientos reales de la empresa).
+ */
+export type UserRole = "superadmin" | "admin" | "vendedor" | "viewer";
 
 export interface JwtPayload {
   _id: string;
