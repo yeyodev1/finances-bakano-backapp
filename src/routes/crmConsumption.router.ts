@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as crmController from "../controllers/crmConsumption.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole } from "../middlewares/role.middleware";
+import { requireRole, requireStaff } from "../middlewares/role.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { idParamSchema, objectIdSchema, paginationSchema, periodSchema } from "../validators/common.schema";
 
@@ -16,7 +16,7 @@ const listSchema = z.object({
 const applySchema = z.object({ invoiceId: objectIdSchema });
 
 const auth = toHandler(authMiddleware);
-const canWrite = requireRole("superadmin", "admin");
+const canWrite = requireStaff;
 
 const crmConsumptionRouter = Router();
 crmConsumptionRouter.use(auth);
