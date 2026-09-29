@@ -7,6 +7,10 @@ import { paymentSubmissionService } from "../services/paymentSubmission.service"
 
 /** Endpoints consumidos SOLO por metrics-backapp (x-metrics-key), nunca por navegadores. */
 
+export const estadoPagos = asyncHandler(async (_req: Request, res: Response) => {
+  res.status(200).json({ estados: await portalService.getEstadoPagos() });
+});
+
 export const billing = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(await portalService.getBilling(param(req, "workspaceId")));
 });

@@ -13,6 +13,7 @@ import { portalCardUpdateSchema, portalCheckoutSchema, portalSubmitSchema } from
 const portalRouter = Router();
 portalRouter.use(metricsKeyMiddleware);
 
+portalRouter.get("/estado-pagos", portalController.estadoPagos);
 portalRouter.get("/workspaces/:workspaceId/billing", portalController.billing);
 portalRouter.post(
   "/workspaces/:workspaceId/checkout-session",

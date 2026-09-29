@@ -129,7 +129,84 @@ async function createCardUpdateSession(input: { workspaceId: string; returnUrl: 
   return stripeService.createCardUpdateSession(client.stripeCustomerId, input.returnUrl);
 }
 
+export interface EstadoPagoWorkspace {
+  workspaceId: string;
+  cliente: string;
+  /** Sin facturas vencidas por cobrar (o con excepción / sin cobro). */
+  alDia: boolean;
+  /** Saldo de las facturas ya vencidas. */
+  deuda: number;
+  facturasVencidas: number;
+  /** La factura del mes en curso está pagada completa. */
+  pagadoMesActual: boolean;
+  ultimoPago: Date | null;
+  /** Acceso abierto a propósito pese a la mora, o cliente que no paga. */
+  excepcion: string | null;
+}
+
+/**
+ * Quién está al día, para todos los espacios vinculados de una vez. Metrics lo
+ * usa para no mostrar los guiones a quien debe y para que el equipo sepa a
+ * quién planificarle sin venir a preguntar.
+ *
+ * "Al día" = ninguna factura abierta con la fecha de pago ya pasada. La factura
+ * del mes que todavía no vence no bloquea.
+ */
+async function getEstadoPagos(): Promise<EstadoPagoWorkspace[]> {
+  const clients = await Client.find({ isArchived: false, workspaceId: { $nin: [null, ""] } })
+    .select("name workspaceId paymentMethod accessOverride")
+    .lean();
+  const ids = clients.map((c) => c._id);
+  const now = new Date();
+  const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  const [invoices, payments] = await Promise.all([
+    Invoice.find({
+      clientId: { $in: ids },
+      status: { $ne: "cancelled" },
+      $or: [{ status: { $in: OPEN_STATUSES } }, { period: currentPeriod }],
+    })
+      .select("clientId period amount paidAmount status dueDate")
+      .lean(),
+    Payment.aggregate<{ _id: unknown; ultimo: Date }>([
+      { $match: { clientId: { $in: ids } } },
+      { $group: { _id: "$clientId", ultimo: { $max: "$paidAt" } } },
+    ]),
+  ]);
+
+  const ultimoPor = new Map(payments.map((p) => [String(p._id), p.ultimo]));
+  const facturasPor = new Map<string, typeof invoices>();
+  for (const inv of invoices) {
+    const key = String(inv.clientId);
+    facturasPor.set(key, [...(facturasPor.get(key) || []), inv]);
+  }
+
+  return clients.map((c) => {
+    const facturas = facturasPor.get(String(c._id)) || [];
+    const vencidas = facturas.filter((f) => OPEN_STATUSES.includes(f.status) && new Date(f.dueDate) <= now);
+    const deuda = Number(vencidas.reduce((acc, f) => acc + Math.max(f.amount - (f.paidAmount || 0), 0), 0).toFixed(2));
+    const delMes = facturas.filter((f) => f.period === currentPeriod);
+    const excepcion =
+      c.paymentMethod === "no_paga"
+        ? "No paga"
+        : c.accessOverride?.enabled
+          ? c.accessOverride.reason || "Acceso abierto pese a la mora"
+          : null;
+    return {
+      workspaceId: String(c.workspaceId),
+      cliente: c.name,
+      alDia: Boolean(excepcion) || vencidas.length === 0,
+      deuda,
+      facturasVencidas: vencidas.length,
+      pagadoMesActual: delMes.length > 0 && delMes.every((f) => f.status === "paid"),
+      ultimoPago: ultimoPor.get(String(c._id)) || null,
+      excepcion,
+    };
+  });
+}
+
 export const portalService = {
+  getEstadoPagos,
   getBilling,
   createCheckoutSession,
   createCardUpdateSession,
