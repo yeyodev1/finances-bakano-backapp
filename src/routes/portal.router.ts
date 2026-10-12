@@ -14,6 +14,12 @@ const portalRouter = Router();
 portalRouter.use(metricsKeyMiddleware);
 
 portalRouter.get("/estado-pagos", portalController.estadoPagos);
+
+// MCP del equipo (mcp.bakano.ec): la persona va en x-actor-email.
+portalRouter.get("/mcp/clientes", portalController.mcpClientes);
+portalRouter.get("/mcp/cliente", portalController.mcpCliente);
+portalRouter.get("/mcp/resumen", portalController.mcpResumen);
+portalRouter.post("/mcp/pagos", portalController.mcpRegistrarPago);
 portalRouter.get("/workspaces/:workspaceId/billing", portalController.billing);
 portalRouter.post(
   "/workspaces/:workspaceId/checkout-session",

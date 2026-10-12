@@ -4,6 +4,7 @@ import { param } from "../utils/expressHandler.util";
 import { CustomError } from "../errors/customError.error";
 import { portalService } from "../services/portal.service";
 import { paymentSubmissionService } from "../services/paymentSubmission.service";
+import { mcpService } from "../services/mcp.service";
 
 /** Endpoints consumidos SOLO por metrics-backapp (x-metrics-key), nunca por navegadores. */
 
@@ -52,4 +53,25 @@ export const submit = asyncHandler(async (req: Request, res: Response) => {
   });
 
   res.status(201).json({ submission });
+});
+
+/** MCP del equipo: la persona va en x-actor-email y se valida con su usuario de Finanzas. */
+const actorEmail = (req: Request) => String(req.headers["x-actor-email"] || "");
+
+export const mcpClientes = asyncHandler(async (req: Request, res: Response) => {
+  const q = typeof req.query.q === "string" ? req.query.q : undefined;
+  res.status(200).json(await mcpService.clientes(actorEmail(req), q, req.query.soloDeben === "true"));
+});
+
+export const mcpCliente = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.cliente(actorEmail(req), String(req.query.cliente || "")));
+});
+
+export const mcpResumen = asyncHandler(async (req: Request, res: Response) => {
+  const periodo = typeof req.query.periodo === "string" ? req.query.periodo : undefined;
+  res.status(200).json(await mcpService.resumen(actorEmail(req), periodo));
+});
+
+export const mcpRegistrarPago = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.registrarPago(actorEmail(req), req.body || {}));
 });
