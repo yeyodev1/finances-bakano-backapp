@@ -91,3 +91,7 @@ export const mcpAcceso = asyncHandler(async (req: Request, res: Response) => {
 export const mcpPlazo = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(await mcpService.plazo(actorEmail(req), req.body || {}));
 });
+
+export const mcpCrearCliente = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.crearCliente(actorEmail(req), req.body || {}));
+});

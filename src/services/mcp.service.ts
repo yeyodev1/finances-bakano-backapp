@@ -7,6 +7,7 @@ import { isValidPeriod, startOfDay, toPeriod } from "../utils/date.util";
 import { accessStatusFor, accessStatusMap, globalGraceDays, isOverrideActive } from "./access.status.service";
 import { accessService } from "./access.service";
 import { clientWorkspaceService } from "./client.workspace.service";
+import { clientService } from "./client.service";
 import { invoiceDeferralService } from "./invoice.deferral.service";
 import { resolveGraceDays } from "./scheduler.access";
 import { lifetimeRevenueOf } from "./client.lifecycle.service";
@@ -453,4 +454,79 @@ async function plazo(
   return { listo: true, cliente: c.name, cobro: cobro.period, venceAhora: nueva, seBloqueaEl: corte, accesoAbiertoHasta: abierto, motivo };
 }
 
-export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo };
+/**
+ * Alta de un cliente, igual que "Nuevo cliente" de la plataforma: solo el
+ * cliente, cuánto paga y qué día (no registra venta ni genera cobro). Si se da
+ * el entorno de Metrics se vincula ese; sin él Finanzas CREA un entorno nuevo,
+ * así que el plan lo avisa.
+ */
+async function crearCliente(
+  email: string | undefined,
+  input: {
+    nombre: string;
+    monto: number;
+    tipo_cobro: "monthly" | "special" | "no_charge";
+    metodo?: PaymentMethod;
+    dia_cobro?: number | null;
+    desde?: string;
+    contacto_nombre?: string;
+    contacto_correo?: string;
+    contacto_telefono?: string;
+    razon_social?: string;
+    notas?: string;
+    workspaceId?: string;
+    workspaceName?: string;
+    confirmar?: boolean;
+  }
+) {
+  const quien = await escritor(email);
+  const nombre = String(input.nombre || "").trim();
+  if (nombre.length < 2) throw new CustomError("Falta el nombre del cliente.", 400);
+  const parecidos = await Client.find({ name: { $regex: nombre.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } }).select("name isArchived").limit(5).lean();
+  if (parecidos.some((c) => c.name.toLowerCase() === nombre.toLowerCase())) {
+    throw new CustomError(`Ya existe "${nombre}" en Finanzas. Usa finanzas_cliente para verlo.`, 409);
+  }
+  if (!["monthly", "special", "no_charge"].includes(input.tipo_cobro)) throw new CustomError("tipo_cobro: monthly, special o no_charge.", 400);
+  const monto = dinero(input.monto);
+  if (input.tipo_cobro !== "no_charge" && !(monto > 0)) throw new CustomError("El monto tiene que ser mayor a cero.", 400);
+  if (input.metodo && !PAYMENT_METHODS.includes(input.metodo)) throw new CustomError(`Método inválido. Opciones: ${PAYMENT_METHODS.join(", ")}.`, 400);
+  const dia = input.dia_cobro == null ? null : Number(input.dia_cobro);
+  if (dia != null && !(Number.isInteger(dia) && dia >= 1 && dia <= 31)) throw new CustomError("El día de cobro va de 1 a 31.", 400);
+  const desde = input.desde ? leerFecha(input.desde, "Desde") : new Date();
+  if (input.workspaceId) {
+    const ocupado = await Client.findOne({ workspaceId: input.workspaceId }).lean();
+    if (ocupado) throw new CustomError(`Ese entorno ya está vinculado al cliente "${ocupado.name}" en Finanzas.`, 409);
+  }
+  const tipoTexto = input.tipo_cobro === "monthly" ? "cada mes" : input.tipo_cobro === "special" ? "pago único / a convenir" : "no paga";
+  const plan = {
+    cliente: nombre,
+    cobro: `$${monto} · ${tipoTexto}${dia ? ` · día ${dia}` : " · sin día fijo"} · ${input.metodo || "transferencia"}`,
+    desde: desde.toISOString().slice(0, 10),
+    entorno: input.workspaceId ? `${input.workspaceName ?? input.workspaceId} (se vincula el existente)` : "NO se dio: Finanzas crea un entorno NUEVO en Metrics con ese nombre",
+    contacto: [input.contacto_nombre, input.contacto_correo, input.contacto_telefono].filter(Boolean).join(" · ") || null,
+    parecidosEnFinanzas: parecidos.map((c) => c.name),
+    nota: "No registra venta ni genera el cobro: el pago se registra después con finanzas_registrar_pago (crea el cobro del mes si no hay).",
+  };
+  if (!input.confirmar) return { paraConfirmar: plan, siguiente: "Muéstraselo a la persona. Si confirma, vuelve a llamar con confirmar=true." };
+
+  const c = await clientService.create(
+    {
+      name: nombre,
+      legalName: input.razon_social?.trim() || undefined,
+      contactName: input.contacto_nombre?.trim() || undefined,
+      contactEmail: input.contacto_correo?.trim() || undefined,
+      contactPhone: input.contacto_telefono?.trim() || undefined,
+      amount: monto,
+      billingType: input.tipo_cobro,
+      paymentMethod: input.metodo || "transferencia",
+      collectionDay: dia,
+      startDate: desde,
+      notes: [input.notas?.trim(), `Creado desde el MCP por ${quien.payload.name}`].filter(Boolean).join(" · "),
+      ...(input.workspaceId ? { workspaceId: input.workspaceId, workspaceName: input.workspaceName, workspaceLinkedAt: new Date() } : {}),
+    } as Partial<IClient>,
+    quien.payload._id
+  );
+  return { listo: true, ...fila(c), id: String(c._id) };
+}
+
+export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente };

@@ -24,6 +24,7 @@ portalRouter.get("/mcp/bloqueos", portalController.mcpBloqueos);
 portalRouter.post("/mcp/vincular", portalController.mcpVincular);
 portalRouter.post("/mcp/acceso", portalController.mcpAcceso);
 portalRouter.post("/mcp/plazo", portalController.mcpPlazo);
+portalRouter.post("/mcp/clientes", portalController.mcpCrearCliente);
 portalRouter.get("/workspaces/:workspaceId/billing", portalController.billing);
 portalRouter.post(
   "/workspaces/:workspaceId/checkout-session",
