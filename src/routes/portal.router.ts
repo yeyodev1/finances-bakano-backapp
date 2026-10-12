@@ -20,6 +20,10 @@ portalRouter.get("/mcp/clientes", portalController.mcpClientes);
 portalRouter.get("/mcp/cliente", portalController.mcpCliente);
 portalRouter.get("/mcp/resumen", portalController.mcpResumen);
 portalRouter.post("/mcp/pagos", portalController.mcpRegistrarPago);
+portalRouter.get("/mcp/bloqueos", portalController.mcpBloqueos);
+portalRouter.post("/mcp/vincular", portalController.mcpVincular);
+portalRouter.post("/mcp/acceso", portalController.mcpAcceso);
+portalRouter.post("/mcp/plazo", portalController.mcpPlazo);
 portalRouter.get("/workspaces/:workspaceId/billing", portalController.billing);
 portalRouter.post(
   "/workspaces/:workspaceId/checkout-session",

@@ -75,3 +75,19 @@ export const mcpResumen = asyncHandler(async (req: Request, res: Response) => {
 export const mcpRegistrarPago = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(await mcpService.registrarPago(actorEmail(req), req.body || {}));
 });
+
+export const mcpBloqueos = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.bloqueos(actorEmail(req)));
+});
+
+export const mcpVincular = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.vincular(actorEmail(req), req.body || {}));
+});
+
+export const mcpAcceso = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.acceso(actorEmail(req), req.body || {}));
+});
+
+export const mcpPlazo = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.plazo(actorEmail(req), req.body || {}));
+});

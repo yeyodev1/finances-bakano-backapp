@@ -138,7 +138,7 @@ export function shouldBeClosedStages(globalGraceDays: number): PipelineStage[] {
   ];
 }
 
-async function globalGraceDays(): Promise<number> {
+export async function globalGraceDays(): Promise<number> {
   const settings = await settingsService.getNotificationSettings();
   return settings.graceDays ?? 0;
 }

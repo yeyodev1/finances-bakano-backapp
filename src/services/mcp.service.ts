@@ -4,7 +4,11 @@ import { CustomError } from "../errors/customError.error";
 import { JwtPayload, UserRole } from "../types/AuthRequest";
 import { PAYMENT_METHODS, PaymentMethod } from "../types/finance.types";
 import { isValidPeriod, startOfDay, toPeriod } from "../utils/date.util";
-import { accessStatusFor, accessStatusMap } from "./access.status.service";
+import { accessStatusFor, accessStatusMap, globalGraceDays, isOverrideActive } from "./access.status.service";
+import { accessService } from "./access.service";
+import { clientWorkspaceService } from "./client.workspace.service";
+import { invoiceDeferralService } from "./invoice.deferral.service";
+import { resolveGraceDays } from "./scheduler.access";
 import { lifetimeRevenueOf } from "./client.lifecycle.service";
 import { dashboardService } from "./dashboard.service";
 import { invoiceGenerationService } from "./invoice.generation.service";
@@ -288,4 +292,165 @@ async function registrarPago(
   };
 }
 
-export const mcpService = { clientes, cliente, resumen, registrarPago };
+/** Escribir en Finanzas: mismo permiso que en la plataforma. */
+async function escritor(email: string | undefined): Promise<ActorMcp> {
+  const quien = await actor(email);
+  if (!ESCRIBEN.includes(quien.role)) {
+    throw new CustomError(`Tu usuario de Finanzas es "${quien.role}": solo puede consultar.`, 403);
+  }
+  return quien;
+}
+
+function leerFecha(texto: string, etiqueta: string): Date {
+  const t = String(texto || "").trim();
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(t) ? `${t}T12:00:00-05:00` : t);
+  if (Number.isNaN(d.getTime())) throw new CustomError(`${etiqueta}: usa AAAA-MM-DD.`, 400);
+  return d;
+}
+
+const DIA = 86_400_000;
+
+/**
+ * Cuándo se le corta el acceso a cada cliente que debe. El cron corta cuando
+ * la mora SUPERA la gracia: fecha de corte = vencimiento + gracia + 1 día.
+ * Con excepción vigente, el corte es cuando vence la excepción.
+ */
+async function bloqueos(email: string | undefined) {
+  await actor(email);
+  const gracia = resolveGraceDays(await globalGraceDays());
+  const abiertos = await Invoice.find({ status: "overdue" }).sort({ dueDate: 1 }).lean();
+  const porCliente = new Map<string, typeof abiertos>();
+  for (const i of abiertos) {
+    const k = String(i.clientId);
+    porCliente.set(k, [...(porCliente.get(k) || []), i]);
+  }
+  const clientes = await Client.find({ _id: { $in: [...porCliente.keys()] }, isArchived: { $ne: true } }).lean();
+  const ahora = new Date();
+  const filas = clientes.map((c) => {
+    const cobros = porCliente.get(String(c._id)) || [];
+    const masViejo = cobros[0];
+    const g = resolveGraceDays(c.graceDays ?? gracia);
+    const corte = new Date(startOfDay(masViejo.dueDate).getTime() + (g + 1) * DIA);
+    const excepcion = isOverrideActive(c as any, ahora);
+    const bloqueado = c.workspaceIsActive === false || Boolean(cobros.find((i) => i.deactivation?.deactivatedAt && !i.deactivation?.reactivatedAt));
+    let estado: string;
+    let fechaBloqueo: Date | null = null;
+    if (!c.workspaceId) estado = "sin entorno vinculado: no se puede bloquear";
+    else if (excepcion) {
+      fechaBloqueo = c.accessOverride?.until ? new Date(c.accessOverride.until) : null;
+      estado = fechaBloqueo ? "acceso abierto por excepción hasta esa fecha" : "acceso abierto por excepción SIN fecha (no se bloquea solo)";
+    } else if (bloqueado) estado = "bloqueado";
+    else if (!c.autoDeactivate) estado = "bloqueo automático apagado: no se corta solo";
+    else {
+      fechaBloqueo = corte;
+      estado = corte <= ahora ? "se bloquea en la próxima corrida del cron" : "se bloquea en esa fecha si no paga";
+    }
+    return {
+      id: String(c._id),
+      cliente: c.name,
+      entorno: c.workspaceName ?? null,
+      debe: dinero(cobros.reduce((a, i) => a + Math.max(i.amount - (i.paidAmount || 0), 0), 0)),
+      cobrosVencidos: cobros.map((i) => ({ id: String(i._id), periodo: i.period, saldo: dinero(i.amount - (i.paidAmount || 0)), vencio: i.dueDate, prorrogas: i.deferrals?.length || 0 })),
+      diasGracia: g,
+      estado,
+      fechaBloqueo,
+      excepcion: excepcion ? { motivo: c.accessOverride?.reason, hasta: c.accessOverride?.until ?? null, por: c.accessOverride?.grantedByName } : null,
+    };
+  });
+  filas.sort((a, b) => (a.fechaBloqueo?.getTime() ?? Infinity) - (b.fechaBloqueo?.getTime() ?? Infinity));
+  return { diasGraciaGeneral: gracia, total: filas.length, clientes: filas };
+}
+
+/** Vincula (o desvincula con workspaceId null) el entorno de Metrics. Sin workspaceId sugiere. */
+async function vincular(email: string | undefined, input: { cliente: string; workspaceId?: string | null; desvincular?: boolean; confirmar?: boolean }) {
+  await escritor(email);
+  const c = await buscarCliente(input.cliente);
+  if (input.desvincular) {
+    if (!input.confirmar) return { paraConfirmar: `Desvincular ${c.name} del entorno ${c.workspaceName ?? c.workspaceId ?? "(ninguno)"}.` };
+    await clientWorkspaceService.unlinkWorkspace(String(c._id));
+    return { listo: true, cliente: c.name, entorno: null };
+  }
+  if (!input.workspaceId) {
+    return {
+      cliente: c.name,
+      vinculadoA: c.workspaceId ? { id: c.workspaceId, nombre: c.workspaceName } : null,
+      sugerencias: await clientWorkspaceService.suggestWorkspaceMatches(String(c._id)),
+      siguiente: "Elige el entorno con la persona y vuelve a llamar con workspace_id.",
+    };
+  }
+  const ocupado = await Client.findOne({ workspaceId: input.workspaceId, _id: { $ne: c._id } }).lean();
+  if (ocupado) throw new CustomError(`Ese entorno ya está vinculado a "${ocupado.name}".`, 409);
+  if (!input.confirmar) {
+    return { paraConfirmar: `Vincular ${c.name} con el entorno ${input.workspaceId}${c.workspaceId ? ` (hoy está con ${c.workspaceName ?? c.workspaceId})` : ""}. Sus cobros abiertos quedan con ese entorno y el bloqueo por mora pasa a aplicarse ahí.` };
+  }
+  const r = await clientWorkspaceService.linkWorkspace(String(c._id), input.workspaceId);
+  return { listo: true, cliente: r.name, entorno: { id: r.workspaceId, nombre: r.workspaceName, activo: r.workspaceIsActive } };
+}
+
+/** Abre el acceso por excepción (con motivo y hasta cuándo) o lo vuelve a cerrar. */
+async function acceso(
+  email: string | undefined,
+  input: { cliente: string; accion: "abrir" | "cerrar"; motivo?: string; hasta?: string | null; confirmar?: boolean }
+) {
+  const quien = await escritor(email);
+  const c = await buscarCliente(input.cliente);
+  const estado = await accessStatusFor(c._id);
+  if (input.accion === "abrir") {
+    const motivo = String(input.motivo || "").trim();
+    if (motivo.length < 3) throw new CustomError("Dime por qué se le abre el acceso (queda registrado y le llega al equipo).", 400);
+    const hasta = input.hasta ? leerFecha(input.hasta, "Hasta cuándo") : null;
+    if (!input.confirmar) {
+      return {
+        paraConfirmar: `Abrir el acceso de ${c.name} ${hasta ? `hasta el ${hasta.toISOString().slice(0, 10)}` : "SIN fecha de fin (hay que cerrarlo a mano)"}. Motivo: ${motivo}. Debe $${dinero(estado.overdueAmount)} con ${estado.maxDaysOverdue} días de mora.`,
+        ...(hasta ? {} : { ojo: "Sin fecha nunca se vuelve a bloquear solo. Mejor dar una fecha." }),
+      };
+    }
+    const r = await accessService.grantAccess(String(c._id), { reason: motivo, until: hasta }, quien.payload);
+    return { listo: true, cliente: c.name, abiertoHasta: r.until, motivo, debe: dinero(r.overdueAmount), mensaje: r.message };
+  }
+  if (!input.confirmar) {
+    return { paraConfirmar: `Quitar la excepción de ${c.name}${estado.overdueInvoices ? " y volver a bloquear su entorno (sigue debiendo)" : ""}.` };
+  }
+  const r = await accessService.revokeAccess(String(c._id), {}, quien.payload);
+  return { listo: true, cliente: c.name, entornoCerrado: r.closedWorkspace, mensaje: r.message };
+}
+
+/**
+ * Plazo de pago: mueve el vencimiento de un cobro (el más viejo abierto si no
+ * se dice cuál). Eso corre la fecha de bloqueo a nueva fecha + gracia. Si ya
+ * estaba bloqueado y la fecha nueva es futura, se le abre el acceso hasta ahí.
+ */
+async function plazo(
+  email: string | undefined,
+  input: { cliente: string; nueva_fecha: string; motivo: string; cobro_id?: string; reabrir?: boolean; confirmar?: boolean }
+) {
+  const quien = await escritor(email);
+  const c = await buscarCliente(input.cliente);
+  const motivo = String(input.motivo || "").trim();
+  if (motivo.length < 3) throw new CustomError("Dime por qué se le da el plazo (queda registrado).", 400);
+  const nueva = leerFecha(input.nueva_fecha, "Nueva fecha");
+  const cobro = input.cobro_id
+    ? await Invoice.findOne({ _id: input.cobro_id, clientId: c._id })
+    : await Invoice.findOne({ clientId: c._id, status: { $in: OPEN } }).sort({ dueDate: 1 });
+  if (!cobro) throw new CustomError(`${c.name} no tiene cobros abiertos para darle plazo.`, 404);
+  const gracia = resolveGraceDays(c.graceDays ?? (await globalGraceDays()));
+  const corte = new Date(startOfDay(nueva).getTime() + (gracia + 1) * DIA);
+  const bloqueado = c.workspaceIsActive === false;
+  const reabrir = input.reabrir !== false && bloqueado && Boolean(c.workspaceId);
+  if (!input.confirmar) {
+    return {
+      paraConfirmar: `Plazo a ${c.name}: el cobro de ${cobro.period} ($${dinero(cobro.amount - (cobro.paidAmount || 0))} pendiente) pasa de vencer el ${cobro.dueDate.toISOString().slice(0, 10)} al ${nueva.toISOString().slice(0, 10)}. Motivo: ${motivo}. Si no paga, se bloquea el ${corte.toISOString().slice(0, 10)}.` +
+        (reabrir ? " Hoy está bloqueado: se le abre el acceso hasta esa fecha de bloqueo." : ""),
+      ojo: "Finanzas le manda al cliente el correo del acuerdo de pago con la fecha nueva.",
+    };
+  }
+  await invoiceDeferralService.deferInvoice(String(cobro._id), { newDueDate: nueva, reason: motivo }, quien.payload);
+  let abierto: Date | null = null;
+  if (reabrir) {
+    const r = await accessService.grantAccess(String(c._id), { reason: `Plazo de pago: ${motivo}`, until: corte }, quien.payload);
+    abierto = r.until;
+  }
+  return { listo: true, cliente: c.name, cobro: cobro.period, venceAhora: nueva, seBloqueaEl: corte, accesoAbiertoHasta: abierto, motivo };
+}
+
+export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo };
