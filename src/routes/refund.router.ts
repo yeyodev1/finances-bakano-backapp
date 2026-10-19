@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as refundController from "../controllers/refund.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole, requireStaff } from "../middlewares/role.middleware";
+import { requireDeletePermission, requireStaff } from "../middlewares/role.middleware";
 import { uploadDocument } from "../middlewares/upload.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { idParamSchema } from "../validators/common.schema";
@@ -36,7 +36,7 @@ refundRouter.get(
 refundRouter.get("/:id", validate(idParamSchema, "params"), refundController.getById);
 refundRouter.delete(
   "/:id",
-  requireRole("superadmin"),
+  requireDeletePermission,
   validate(idParamSchema, "params"),
   refundController.remove
 );

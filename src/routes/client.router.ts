@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as clientController from "../controllers/client.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole, requireStaff } from "../middlewares/role.middleware";
+import { requireDeletePermission, requireRole, requireStaff } from "../middlewares/role.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { uploadDocument } from "../middlewares/upload.middleware";
 import { idParamSchema } from "../validators/common.schema";
@@ -139,9 +139,10 @@ clientRouter.post(
   toHandler(uploadDocument.array("attachments", 10)),
   clientController.addAttachments
 );
+// Borrado real de un cliente sin pagos (duplicados): mismo permiso de eliminar que pagos y reembolsos.
 clientRouter.delete(
   "/:id/purge",
-  requireRole("superadmin"),
+  requireDeletePermission,
   validate(idParamSchema, "params"),
   clientController.purge
 );

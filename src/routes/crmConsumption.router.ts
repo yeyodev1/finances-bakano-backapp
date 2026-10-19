@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as crmController from "../controllers/crmConsumption.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole, requireStaff } from "../middlewares/role.middleware";
+import { requireDeletePermission, requireStaff } from "../middlewares/role.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { idParamSchema, objectIdSchema, paginationSchema, periodSchema } from "../validators/common.schema";
 
@@ -31,7 +31,7 @@ crmConsumptionRouter.post(
 );
 crmConsumptionRouter.delete(
   "/:id",
-  requireRole("superadmin"),
+  requireDeletePermission,
   validate(idParamSchema, "params"),
   crmController.remove
 );

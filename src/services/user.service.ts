@@ -1,7 +1,7 @@
 import { FilterQuery } from "mongoose";
-import { IUser, User } from "../models";
+import { AuditLog, IUser, User } from "../models";
 import { CustomError } from "../errors/customError.error";
-import { UserRole } from "../types/AuthRequest";
+import { JwtPayload, UserRole } from "../types/AuthRequest";
 import { PaginatedResult } from "../types/finance.types";
 
 export interface UserListQuery {
@@ -19,6 +19,7 @@ export interface UserInput {
   role?: UserRole;
   isActive?: boolean;
   receivesNotifications?: boolean;
+  canDelete?: boolean;
   photoUrl?: string;
 }
 
@@ -95,7 +96,7 @@ async function create(input: UserInput) {
   return User.create({ ...input, email });
 }
 
-async function update(id: string, input: Partial<UserInput>) {
+async function update(id: string, input: Partial<UserInput>, actingUser?: JwtPayload) {
   const user = await getById(id);
 
   if (input.email && input.email.toLowerCase().trim() !== user.email) {
@@ -112,6 +113,11 @@ async function update(id: string, input: Partial<UserInput>) {
   }
   if (typeof input.photoUrl === "string") user.photoUrl = input.photoUrl;
 
+  // El permiso de eliminar es sensible: su activación o retiro queda en la bitácora.
+  const deletePermissionChanged =
+    typeof input.canDelete === "boolean" && input.canDelete !== user.canDelete;
+  if (deletePermissionChanged) user.canDelete = input.canDelete as boolean;
+
   if (typeof input.isActive === "boolean" && input.isActive !== user.isActive) {
     if (!input.isActive) await assertNotLastSuperadmin(id);
     user.isActive = input.isActive;
@@ -125,6 +131,19 @@ async function update(id: string, input: Partial<UserInput>) {
   }
 
   await user.save();
+
+  if (deletePermissionChanged) {
+    await AuditLog.create({
+      action: user.canDelete ? "user.grant_delete" : "user.revoke_delete",
+      entity: "User",
+      entityId: user._id.toString(),
+      userId: actingUser?._id,
+      userName: actingUser?.name,
+      level: "warn",
+      meta: { email: user.email, canDelete: user.canDelete },
+    });
+  }
+
   return user;
 }
 

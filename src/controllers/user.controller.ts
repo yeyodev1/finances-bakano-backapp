@@ -24,7 +24,7 @@ export const create = asyncHandler(async (req: AuthRequest, res: Response) => {
 });
 
 export const update = asyncHandler(async (req: AuthRequest, res: Response) => {
-  const user = await userService.update(param(req, "id"), req.body as Partial<UserInput>);
+  const user = await userService.update(param(req, "id"), req.body as Partial<UserInput>, req.user);
   res.status(200).json(user);
 });
 

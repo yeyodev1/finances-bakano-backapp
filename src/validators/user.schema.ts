@@ -17,6 +17,7 @@ export const createUserSchema = z.object({
   role: roleSchema.optional(),
   isActive: z.boolean().optional(),
   receivesNotifications: z.boolean().optional(),
+  canDelete: z.boolean().optional(),
   photoUrl: z.string().url("URL de foto inválida").optional(),
 });
 

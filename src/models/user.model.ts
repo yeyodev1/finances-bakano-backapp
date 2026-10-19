@@ -9,6 +9,8 @@ export interface IUser extends Document {
   password: string;
   role: UserRole;
   isActive: boolean;
+  /** Puede eliminar registros (pagos, reembolsos, consumos, clientes sin pagos). Lo activa un superadmin y cada borrado queda en la bitácora. */
+  canDelete: boolean;
   photoUrl?: string;
   photoPublicId?: string;
   lastLoginAt?: Date;
@@ -36,6 +38,7 @@ const userSchema = new Schema<IUser>(
       default: "admin",
     },
     isActive: { type: Boolean, default: true },
+    canDelete: { type: Boolean, default: false },
     photoUrl: { type: String },
     photoPublicId: { type: String },
     lastLoginAt: { type: Date },

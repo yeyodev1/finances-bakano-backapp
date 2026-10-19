@@ -2,7 +2,7 @@ import { Router } from "express";
 import * as paymentController from "../controllers/payment.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { toHandler } from "../utils/expressHandler.util";
-import { requireRole, requireStaff } from "../middlewares/role.middleware";
+import { requireDeletePermission, requireStaff } from "../middlewares/role.middleware";
 import { uploadDocument } from "../middlewares/upload.middleware";
 import { validate } from "../middlewares/validate.middleware";
 import { idParamSchema } from "../validators/common.schema";
@@ -36,7 +36,7 @@ paymentRouter.post(
 paymentRouter.get("/:id", validate(idParamSchema, "params"), paymentController.getById);
 paymentRouter.delete(
   "/:id",
-  requireRole("superadmin"),
+  requireDeletePermission,
   validate(idParamSchema, "params"),
   paymentController.remove
 );
