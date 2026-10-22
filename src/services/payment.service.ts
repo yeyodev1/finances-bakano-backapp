@@ -336,7 +336,7 @@ async function settle(
     );
   }
 
-  const applied: Array<{ invoiceId: string; period: string; amount: number }> = [];
+  const applied: Array<{ invoiceId: string; period: string; amount: number; paymentId: string }> = [];
 
   for (const invoice of open) {
     if (remaining <= 0.009) break;
@@ -344,7 +344,7 @@ async function settle(
     if (balance <= 0) continue;
 
     const portion = Number(Math.min(balance, remaining).toFixed(2));
-    await register(
+    const registrado = await register(
       {
         invoiceId: invoice._id.toString(),
         amount: portion,
@@ -356,7 +356,12 @@ async function settle(
       user
     );
 
-    applied.push({ invoiceId: invoice._id.toString(), period: invoice.period, amount: portion });
+    applied.push({
+      invoiceId: invoice._id.toString(),
+      period: invoice.period,
+      amount: portion,
+      paymentId: registrado.payment._id.toString(),
+    });
     remaining = Number((remaining - portion).toFixed(2));
   }
 

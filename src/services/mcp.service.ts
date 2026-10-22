@@ -14,6 +14,7 @@ import { lifetimeRevenueOf } from "./client.lifecycle.service";
 import { dashboardService } from "./dashboard.service";
 import { invoiceGenerationService } from "./invoice.generation.service";
 import { paymentService } from "./payment.service";
+import { receiptUploadService } from "./receiptUpload.service";
 
 /**
  * Bakano Finanzas desde el MCP del equipo (mcp.bakano.ec).
@@ -185,7 +186,8 @@ async function registrarPago(
     referencia?: string;
     notas?: string;
     confirmar?: boolean;
-  }
+  },
+  baseUrl?: string
 ) {
   const quien = await actor(email);
   if (!ESCRIBEN.includes(quien.role)) {
@@ -285,11 +287,83 @@ async function registrarPago(
     },
     quien.payload
   );
+  const pagoIds = r.applied.map((a) => a.paymentId).filter(Boolean);
   return {
     listo: true,
     ...resumenPago,
     aplicado: r.applied,
     totalCobradoHistorico: await lifetimeRevenueOf(c._id),
+    ...(baseUrl && pagoIds.length
+      ? {
+          comprobante: {
+            subir: receiptUploadService.linkPara(baseUrl, pagoIds, quien.payload.name),
+            nota: `Enlace para subir la imagen o PDF del comprobante (vence en ${receiptUploadService.VIGENCIA_TEXTO}). Compártelo con la persona: lo abre, arrastra el archivo y queda pegado al pago.`,
+          },
+        }
+      : {}),
+  };
+}
+
+/**
+ * ¿Esta persona tiene usuario activo en Finanzas? Lo usa el MCP de metrics
+ * para decidir si le muestra las herramientas de Finanzas que no son solo de
+ * superadmin (p. ej. subir comprobantes). Nunca lanza 403: es una consulta.
+ */
+async function actorExiste(email: string | undefined) {
+  const correo = String(email || "").trim().toLowerCase();
+  if (!correo) return { existe: false };
+  const user = await User.findOne({ email: correo, isActive: true }).select("role").lean();
+  return user ? { existe: true, role: user.role } : { existe: false };
+}
+
+/**
+ * Enlace para subir el comprobante de un pago YA registrado. Con `pago_id` o
+ * `referencia` va directo; con solo `cliente` toma su último pago. Un pago
+ * repartido entre varios cobros (misma referencia) recibe el mismo comprobante.
+ */
+async function comprobante(
+  email: string | undefined,
+  input: { cliente?: string; pago_id?: string; referencia?: string },
+  baseUrl: string
+) {
+  const quien = await escritor(email);
+
+  let pagos;
+  const referencia = input.referencia?.trim();
+  if (input.pago_id) {
+    if (!Types.ObjectId.isValid(input.pago_id)) throw new CustomError("pago_id no es un id válido.", 400);
+    const pago = await Payment.findById(input.pago_id).lean();
+    if (!pago) throw new CustomError("No encontré ese pago en Finanzas.", 404);
+    pagos = pago.reference
+      ? await Payment.find({ clientId: pago.clientId, reference: pago.reference }).lean()
+      : [pago];
+  } else if (referencia) {
+    pagos = await Payment.find({ reference: referencia }).lean();
+    if (!pagos.length) throw new CustomError(`No encontré pagos con la referencia ${referencia}.`, 404);
+  } else if (input.cliente) {
+    const c = await buscarCliente(input.cliente);
+    const ultimo = await Payment.findOne({ clientId: c._id }).sort({ paidAt: -1, createdAt: -1 }).lean();
+    if (!ultimo) throw new CustomError(`${c.name} no tiene pagos registrados en Finanzas todavía.`, 404);
+    pagos = ultimo.reference
+      ? await Payment.find({ clientId: c._id, reference: ultimo.reference, paidAt: ultimo.paidAt }).lean()
+      : [ultimo];
+  } else {
+    throw new CustomError("Dime el cliente, el pago_id o la referencia del pago.", 400);
+  }
+
+  const ids = pagos.map((p) => String(p._id));
+  return {
+    pagos: pagos.map((p) => ({
+      id: String(p._id),
+      cliente: p.clientName,
+      monto: dinero(p.amount),
+      periodo: p.period,
+      fecha: p.paidAt,
+      referencia: p.reference ?? null,
+      yaTieneComprobante: Boolean(p.receiptUrl),
+    })),
+    subir: receiptUploadService.linkPara(baseUrl, ids, quien.payload.name),
+    nota: `El enlace vence en ${receiptUploadService.VIGENCIA_TEXTO}. La persona lo abre, arrastra la imagen o el PDF y queda pegado al pago. Si el pago ya tenía comprobante, el nuevo lo reemplaza.`,
   };
 }
 
@@ -529,4 +603,4 @@ async function crearCliente(
   return { listo: true, ...fila(c), id: String(c._id) };
 }
 
-export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente };
+export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente, actorExiste, comprobante };

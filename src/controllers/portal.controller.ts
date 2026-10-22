@@ -58,6 +58,13 @@ export const submit = asyncHandler(async (req: Request, res: Response) => {
 /** MCP del equipo: la persona va en x-actor-email y se valida con su usuario de Finanzas. */
 const actorEmail = (req: Request) => String(req.headers["x-actor-email"] || "");
 
+/** URL pública de ESTA API (detrás de Vercel), para armar los enlaces de subida de comprobantes. */
+function baseUrlDe(req: Request): string {
+  const proto = String(req.headers["x-forwarded-proto"] || req.protocol || "https").split(",")[0].trim();
+  const host = String(req.headers["x-forwarded-host"] || req.get("host") || "").split(",")[0].trim();
+  return `${proto}://${host}`;
+}
+
 export const mcpClientes = asyncHandler(async (req: Request, res: Response) => {
   const q = typeof req.query.q === "string" ? req.query.q : undefined;
   res.status(200).json(await mcpService.clientes(actorEmail(req), q, req.query.soloDeben === "true"));
@@ -73,7 +80,15 @@ export const mcpResumen = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const mcpRegistrarPago = asyncHandler(async (req: Request, res: Response) => {
-  res.status(200).json(await mcpService.registrarPago(actorEmail(req), req.body || {}));
+  res.status(200).json(await mcpService.registrarPago(actorEmail(req), req.body || {}, baseUrlDe(req)));
+});
+
+export const mcpActor = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.actorExiste(actorEmail(req)));
+});
+
+export const mcpComprobante = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.comprobante(actorEmail(req), req.body || {}, baseUrlDe(req)));
 });
 
 export const mcpBloqueos = asyncHandler(async (req: Request, res: Response) => {

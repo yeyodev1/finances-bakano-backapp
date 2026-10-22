@@ -15,6 +15,7 @@ import stripeRouter from "./stripe.router";
 import paymentSubmissionRouter from "./paymentSubmission.router";
 import crmConsumptionRouter from "./crmConsumption.router";
 import portalRouter from "./portal.router";
+import comprobanteRouter from "./comprobante.router";
 import cronRouter from "./cron.router";
 
 function routerApi(app: Application) {
@@ -38,6 +39,7 @@ function routerApi(app: Application) {
   router.use("/payment-submissions", paymentSubmissionRouter);
   router.use("/crm-consumption", crmConsumptionRouter);
   router.use("/portal", portalRouter);
+  router.use("/comprobantes", comprobanteRouter);
   router.use("/cron", cronRouter);
 }
 
