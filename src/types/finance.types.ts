@@ -13,6 +13,35 @@ export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 export const PAYMENT_SOURCES = ["manual", "stripe", "client_submission"] as const;
 export type PaymentSource = (typeof PAYMENT_SOURCES)[number];
 
+/**
+ * Qué le vendemos al cliente. Tres verticales: tráfico (el principal),
+ * desarrollo web y automatizaciones. El prefijo es la vertical.
+ */
+export const CLIENT_SERVICES = [
+  "trafico_completo",
+  "trafico_guiones",
+  "web_tienda",
+  "web_informativa",
+  "automatizacion",
+] as const;
+export type ClientService = (typeof CLIENT_SERVICES)[number];
+
+/** Cómo se llama ese servicio en métricas (decide qué le pide el bot en el onboarding). */
+export const METRICS_SERVICE: Record<ClientService, string> = {
+  trafico_completo: "completo",
+  trafico_guiones: "guiones_pautas",
+  web_tienda: "web",
+  web_informativa: "web",
+  automatizacion: "automatizacion",
+};
+
+/** Al revés, para rellenar clientes sin servicio. "web" no se traduce: no se sabe si es tienda o informativa. */
+export const SERVICE_FROM_METRICS: Record<string, ClientService> = {
+  completo: "trafico_completo",
+  guiones_pautas: "trafico_guiones",
+  automatizacion: "automatizacion",
+};
+
 export const BILLING_TYPES = ["monthly", "no_charge", "special"] as const;
 export type BillingType = (typeof BILLING_TYPES)[number];
 

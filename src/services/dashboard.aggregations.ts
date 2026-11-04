@@ -15,6 +15,24 @@ export interface PeriodTotals {
   invoicesOverdue: number;
 }
 
+/** Cobrado y esperado del período por servicio del cliente. null = cliente sin servicio. */
+export async function serviceTotals(period: string) {
+  return Invoice.aggregate<{ service: string | null; expected: number; collected: number; clients: number }>([
+    { $match: { period, status: { $nin: EXCLUDED_STATUSES } } },
+    { $lookup: { from: "clients", localField: "clientId", foreignField: "_id", as: "c", pipeline: [{ $project: { service: 1 } }] } },
+    {
+      $group: {
+        _id: { $ifNull: [{ $first: "$c.service" }, null] },
+        expected: { $sum: "$amount" },
+        collected: { $sum: "$paidAmount" },
+        clientIds: { $addToSet: "$clientId" },
+      },
+    },
+    { $project: { _id: 0, service: "$_id", expected: 1, collected: 1, clients: { $size: "$clientIds" } } },
+    { $sort: { expected: -1 } },
+  ]);
+}
+
 export async function periodTotals(period: string): Promise<PeriodTotals> {
   const [result] = await Invoice.aggregate<PeriodTotals>([
     { $match: { period, status: { $nin: EXCLUDED_STATUSES } } },

@@ -48,7 +48,7 @@ async function list(query: InvoiceListQuery = {}): Promise<PaginatedResult<IInvo
 
   const [items, total] = await Promise.all([
     Invoice.find(filter)
-      .populate("clientId", "name contactEmail workspaceId workspaceName workspaceImageUrl isActive paymentMethod")
+      .populate("clientId", "name contactName contactEmail workspaceId workspaceName workspaceImageUrl isActive paymentMethod service startDate createdAt")
       .sort({ dueDate: -1, clientName: 1 })
       .skip((page - 1) * limit)
       .limit(limit),

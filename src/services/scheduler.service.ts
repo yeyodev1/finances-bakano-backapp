@@ -1,3 +1,4 @@
+import { clientWorkspaceService } from "./client.workspace.service";
 import cron from "node-cron";
 import { env } from "../config/env";
 import { AuditLog, Client, IClient, IInvoice, Invoice } from "../models";
@@ -184,6 +185,13 @@ async function runDailyJob(): Promise<DailyJobSummary> {
     await stepDeactivations(summary, settings.graceDays, excluded);
   } else {
     console.log("[cron] Auto-desactivación deshabilitada en configuración");
+  }
+
+  // Logos, nombres y servicio de métricas: antes solo se refrescaban con un botón.
+  try {
+    await clientWorkspaceService.syncWorkspaceImages();
+  } catch (error) {
+    summary.errors.push(`syncWorkspaceImages: ${(error as Error).message}`);
   }
 
   summary.finishedAt = new Date();

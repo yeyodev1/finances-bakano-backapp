@@ -215,6 +215,7 @@ async function list(query: PaymentListQuery = {}): Promise<PaginatedResult<IPaym
   const [items, total] = await Promise.all([
     Payment.find(filter)
       .populate("invoiceId", "period amount status dueDate splitIndex")
+      .populate("clientId", "name contactName service workspaceImageUrl")
       .sort({ paidAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit),

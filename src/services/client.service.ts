@@ -1,7 +1,7 @@
 import { FilterQuery } from "mongoose";
 import { Client, ClientCategory, IClient, User } from "../models";
 import { CustomError } from "../errors/customError.error";
-import { BillingType, PaginatedResult, PaymentMethod } from "../types/finance.types";
+import { BillingType, ClientService, METRICS_SERVICE, PaginatedResult, PaymentMethod } from "../types/finance.types";
 import {
   IDEAL_MONTHLY_MATCH,
   clientLifecycleService,
@@ -26,6 +26,7 @@ export interface ClientListQuery {
   q?: string;
   paymentMethod?: PaymentMethod;
   billingType?: BillingType;
+  service?: ClientService | "none";
   isActive?: boolean;
   hasWorkspace?: boolean;
   archived?: ArchivedFilter;
@@ -57,6 +58,7 @@ async function list(query: ClientListQuery = {}): Promise<PaginatedResult<Client
   }
   if (query.paymentMethod) filter.paymentMethod = query.paymentMethod;
   if (query.billingType) filter.billingType = query.billingType;
+  if (query.service) filter.service = query.service === "none" ? { $in: [null, undefined] } : query.service;
   if (typeof query.isActive === "boolean") filter.isActive = query.isActive;
   if (query.tag) filter.tags = query.tag;
   if (query.ownerId) filter.ownerId = query.ownerId;
@@ -156,6 +158,12 @@ async function resolveOwnerName(input: Partial<IClient>): Promise<void> {
   input.ownerName = owner.name;
 }
 
+/** Copia el servicio a métricas para que el bot pida lo que corresponde. No bloquea si falla. */
+async function pushService(client: IClient): Promise<void> {
+  if (!client.workspaceId || !client.service) return;
+  await metricsService.setWorkspaceService(client.workspaceId, METRICS_SERVICE[client.service]);
+}
+
 async function create(input: Partial<IClient>, userId?: string) {
   const exists = await Client.findOne({ name: input.name });
   if (exists) throw new CustomError("Ya existe un cliente con ese nombre", 409);
@@ -185,6 +193,8 @@ async function create(input: Partial<IClient>, userId?: string) {
       );
     }
   }
+
+  await pushService(client);
 
   // Regla acordada con ventas: en Clientes solo se agrega el cliente (cuánto
   // paga y qué día). El alta NO registra una venta ni genera el cobro del mes:
@@ -227,8 +237,12 @@ async function update(id: string, input: Partial<IClient>) {
   const touchesBilling =
     input.amount !== undefined || input.splits !== undefined || input.collectionDay !== undefined;
 
+  const serviceChanged = input.service !== undefined && input.service !== client.service;
+
   client.set(input);
   await client.save();
+
+  if (serviceChanged) await pushService(client);
 
   // Si cambió el monto, los cobros divididos o el día de cobro, los cobros abiertos
   // del período en curso se regeneran con el valor nuevo; si no, la factura queda

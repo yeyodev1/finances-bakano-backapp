@@ -4,6 +4,8 @@ import {
   ArchiveReason,
   BILLING_TYPES,
   BillingType,
+  CLIENT_SERVICES,
+  ClientService,
   GUARANTEE_STATUSES,
   GuaranteeStatus,
   PAYMENT_METHODS,
@@ -94,12 +96,27 @@ export interface IClient extends Document {
 
   paymentMethod: PaymentMethod;
   billingType: BillingType;
+  /** Qué le vendemos. null = falta definirlo. Se copia a métricas. */
+  service?: ClientService | null;
 
   /** Cobros divididos dentro del mismo mes. Ej: dos pagos de $210. */
   splits: IClientSplit[];
 
   notes?: string;
   tags: string[];
+
+  /**
+   * Brief del servicio: qué es el cliente y qué hay que considerar al
+   * trabajarlo. Se replica al workspace de métricas, donde lo ven Ari, Joel
+   * y Producción.
+   */
+  serviceDetails?: string;
+  /**
+   * La probable estrategia inicial acordada. En métricas acompaña los avisos
+   * de rechazos y correcciones, para que el equipo corrija con criterio y no
+   * en modo automático.
+   */
+  initialStrategy?: string;
 
   /** Vínculo con el espacio de trabajo en el backend de métricas. */
   workspaceId?: string;
@@ -243,6 +260,8 @@ const clientSchema = new Schema<IClient>(
     collectionDay: { type: Number, min: 1, max: 31, default: null },
     collectionDayLabel: { type: String, trim: true },
 
+    service: { type: String, enum: [...CLIENT_SERVICES, null], default: null, index: true },
+
     paymentMethod: {
       type: String,
       enum: PAYMENT_METHODS,
@@ -258,6 +277,9 @@ const clientSchema = new Schema<IClient>(
 
     notes: { type: String, trim: true },
     tags: { type: [String], default: [] },
+
+    serviceDetails: { type: String, trim: true, maxlength: 4000 },
+    initialStrategy: { type: String, trim: true, maxlength: 4000 },
 
     workspaceId: { type: String, default: null, index: true },
     workspaceName: { type: String, default: null },

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ARCHIVE_REASONS, BILLING_TYPES, PAYMENT_METHODS } from "../types/finance.types";
+import { ARCHIVE_REASONS, BILLING_TYPES, CLIENT_SERVICES, PAYMENT_METHODS } from "../types/finance.types";
 import { booleanish, dateSchema, objectIdSchema, paginationSchema } from "./common.schema";
 
 const dayOfMonth = z.number().int().min(1).max(31).nullable();
@@ -14,6 +14,8 @@ export const clientListSchema = z.object({
   q: z.string().trim().optional(),
   paymentMethod: z.enum(PAYMENT_METHODS).optional(),
   billingType: z.enum(BILLING_TYPES).optional(),
+  /** "none" = clientes a los que falta ponerles servicio. */
+  service: z.enum([...CLIENT_SERVICES, "none"]).optional(),
   isActive: booleanish.optional(),
   hasWorkspace: booleanish.optional(),
   archived: z.enum(["true", "false", "all"]).optional(),
@@ -37,9 +39,13 @@ export const createClientSchema = z.object({
   collectionDayLabel: z.string().trim().optional(),
   paymentMethod: z.enum(PAYMENT_METHODS).optional(),
   billingType: z.enum(BILLING_TYPES).optional(),
+  service: z.enum(CLIENT_SERVICES).nullable().optional(),
   splits: z.array(splitSchema).optional(),
   notes: z.string().trim().optional(),
   tags: z.array(z.string().trim()).optional(),
+  /** Brief del servicio: viaja al workspace de métricas para el equipo y el bot. */
+  serviceDetails: z.string().trim().max(4000).optional(),
+  initialStrategy: z.string().trim().max(4000).optional(),
   autoDeactivate: z.boolean().optional(),
   graceDays: z.number().int().min(0).nullable().optional(),
   isActive: z.boolean().optional(),

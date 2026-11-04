@@ -14,6 +14,7 @@ import {
   clientCounters,
   methodBreakdownRows,
   periodTotals,
+  serviceTotals,
   revenueSeriesRows,
   statusBreakdownRows,
   topClientRows,
@@ -39,12 +40,13 @@ function daysOverdueFrom(dueDate: Date): number {
 
 async function summary(period?: string) {
   const target = ensurePeriod(period);
-  const [totals, counters, ideal, accessCounts, goal] = await Promise.all([
+  const [totals, counters, ideal, accessCounts, goal, byService] = await Promise.all([
     periodTotals(target),
     clientCounters(target),
     idealMonthlyAmount(),
     accessStatusCounts(),
     saleGoalService.progress(target).catch(() => null),
+    serviceTotals(target),
   ]);
 
   const collectionRate =
@@ -60,6 +62,7 @@ async function summary(period?: string) {
     collectionRate,
     ...counters,
     ...accessCounts,
+    byService,
     /** Objetivo de ventas del mes, para leerlo junto al ideal mensual. */
     salesGoal: goal
       ? {
@@ -199,6 +202,7 @@ async function upcomingCollections(days = 15) {
               paymentMethod: 1,
               collectionDayLabel: 1,
               workspaceId: 1,
+              workspaceImageUrl: 1,
             },
           },
         ],
@@ -242,6 +246,7 @@ async function overdueList(limit = 50) {
               workspaceId: 1,
               workspaceName: 1,
               workspaceIsActive: 1,
+              workspaceImageUrl: 1,
               autoDeactivate: 1,
               graceDays: 1,
             },

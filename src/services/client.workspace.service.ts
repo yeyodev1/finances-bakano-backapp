@@ -1,6 +1,7 @@
 import { Client, IClient, Invoice } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { nameSimilarity } from "../utils/similarity.util";
+import { METRICS_SERVICE, SERVICE_FROM_METRICS } from "../types/finance.types";
 import { MetricsWorkspace, metricsService, workspaceImageOf } from "./metrics.service";
 
 export interface WorkspaceSuggestion {
@@ -72,6 +73,10 @@ async function linkWorkspace(clientId: string, workspaceId: string, workspaceNam
     { $set: { workspaceId } }
   );
 
+  if (client.service) {
+    await metricsService.setWorkspaceService(workspaceId, METRICS_SERVICE[client.service]);
+  }
+
   return client;
 }
 
@@ -130,7 +135,7 @@ async function suggestWorkspaceMatches(clientId: string): Promise<WorkspaceSugge
  */
 async function syncWorkspaceImages(): Promise<SyncWorkspaceImagesResult> {
   const clients = await Client.find({ workspaceId: { $nin: [null, ""] } })
-    .select("workspaceId workspaceName workspaceImageUrl workspaceIsActive")
+    .select("workspaceId workspaceName workspaceImageUrl workspaceIsActive service")
     .lean();
 
   if (!metricsService.isConfigured()) {
@@ -155,10 +160,14 @@ async function syncWorkspaceImages(): Promise<SyncWorkspaceImagesResult> {
     const isActive =
       typeof workspace.isActive === "boolean" ? workspace.isActive : client.workspaceIsActive;
 
+    // Finanzas manda en el servicio; de métricas solo se rellena el que falta.
+    const service = client.service ? null : SERVICE_FROM_METRICS[String(workspace.servicio)] ?? null;
+
     const changed =
       (client.workspaceImageUrl || null) !== imageUrl ||
       (client.workspaceName || null) !== name ||
-      (client.workspaceIsActive ?? null) !== (isActive ?? null);
+      (client.workspaceIsActive ?? null) !== (isActive ?? null) ||
+      service !== null;
 
     if (!changed) continue;
 
@@ -170,6 +179,7 @@ async function syncWorkspaceImages(): Promise<SyncWorkspaceImagesResult> {
             workspaceImageUrl: imageUrl,
             workspaceName: name,
             workspaceIsActive: isActive ?? null,
+            ...(service ? { service } : {}),
           },
         },
       },

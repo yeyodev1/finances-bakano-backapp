@@ -29,6 +29,7 @@ export interface MetricsWorkspace {
   instagramAccountName?: string | null;
   tipoNegocio?: string | null;
   vertical?: string | null;
+  servicio?: string | null;
   createdAt?: string | Date;
   [key: string]: unknown;
 }
@@ -56,8 +57,10 @@ function readUrl(value: unknown): string | null {
 export function workspaceImageOf(workspace?: MetricsWorkspace | null): string | null {
   if (!workspace) return null;
 
+  // Primero la foto de Instagram/Facebook del negocio (pictureUrl): es la que el
+  // equipo reconoce de un vistazo. `imageUrl` de métricas pone el logo antes.
   const direct =
-    readUrl(workspace.imageUrl) || readUrl(workspace.logoUrl) || readUrl(workspace.pictureUrl);
+    readUrl(workspace.pictureUrl) || readUrl(workspace.imageUrl) || readUrl(workspace.logoUrl);
   if (direct) return direct;
 
   const images = Array.isArray(workspace.images) ? workspace.images : [];
@@ -255,6 +258,42 @@ async function setWorkspaceActive(
   }
 }
 
+/**
+ * Manda el brief del servicio (detalles + estrategia inicial) al workspace de
+ * métricas, donde lo ve el equipo y acompaña los avisos de rechazos. Nunca
+ * rompe el alta/edición del cliente: si métricas no responde, queda en el
+ * AuditLog y se reintenta al volver a guardar.
+ */
+async function setWorkspaceStrategy(
+  id: string,
+  datos: { detalles?: string; estrategia?: string; porNombre?: string }
+): Promise<boolean> {
+  if (!isConfigured()) return false;
+
+  try {
+    await request(() => getClient().patch(`${BASE_PATH}/${id}/estrategia`, datos));
+    return true;
+  } catch (error) {
+    console.error("[metrics] Error guardando la estrategia:", describeError(error));
+    await logError("metrics.setWorkspaceStrategy", id, error);
+    return false;
+  }
+}
+
+/** Copia el servicio al workspace de métricas. Igual que la estrategia: nunca rompe el guardado. */
+async function setWorkspaceService(id: string, servicio: string): Promise<boolean> {
+  if (!isConfigured()) return false;
+
+  try {
+    await request(() => getClient().patch(`${BASE_PATH}/${id}/servicio`, { servicio }));
+    return true;
+  } catch (error) {
+    console.error("[metrics] Error guardando el servicio:", describeError(error));
+    await logError("metrics.setWorkspaceService", id, error);
+    return false;
+  }
+}
+
 async function health(): Promise<{ configured: boolean; reachable: boolean; message: string }> {
   if (!isConfigured()) {
     return {
@@ -278,6 +317,8 @@ export const metricsService = {
   listWorkspaces,
   getWorkspace,
   setWorkspaceActive,
+  setWorkspaceStrategy,
+  setWorkspaceService,
   health,
   workspaceImageOf,
   workspaceVisuals,
