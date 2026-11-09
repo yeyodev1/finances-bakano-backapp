@@ -9,6 +9,7 @@ import { accessService } from "./access.service";
 import { clientWorkspaceService } from "./client.workspace.service";
 import { clientService } from "./client.service";
 import { invoiceDeferralService } from "./invoice.deferral.service";
+import { invoiceQueryService } from "./invoice.query.service";
 import { resolveGraceDays } from "./scheduler.access";
 import { lifetimeRevenueOf } from "./client.lifecycle.service";
 import { dashboardService } from "./dashboard.service";
@@ -603,4 +604,58 @@ async function crearCliente(
   return { listo: true, ...fila(c), id: String(c._id) };
 }
 
-export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente, actorExiste, comprobante };
+/**
+ * Ex clientes que se fueron con saldo: sus cobros abiertos se condonan (waived)
+ * con motivo para que dejen de inflar "por cobrar" (pedido de Luis, tarea de
+ * Metrics 6ae385d1aa35bac083a8948b). No se borra nada: pagos y facturas quedan
+ * como historia. Sin cliente ni todos_archivados: lista los archivados con saldo.
+ * Solo superadmin.
+ */
+async function darDeBaja(
+  email: string | undefined,
+  input: { cliente?: string; todos_archivados?: boolean; motivo?: string; confirmar?: boolean }
+) {
+  const quien = await actor(email);
+  if (quien.role !== "superadmin") throw new CustomError("Dar de baja saldos es solo de superadmin.", 403);
+  const motivo = String(input.motivo || "").trim() || "Cliente se fue; saldo dado por perdido por Dirección";
+
+  const clientes: IClient[] = input.cliente
+    ? [await buscarCliente(input.cliente)]
+    : ((await Client.find({ $or: [{ isArchived: true }, { isActive: false }] }).lean()) as unknown as IClient[]);
+  const ids = clientes.map((c) => c._id);
+  const [abiertos, pagosChicos] = await Promise.all([
+    Invoice.find({ clientId: { $in: ids }, status: { $in: OPEN } }).sort({ clientName: 1, period: 1 }).lean(),
+    Payment.find({ clientId: { $in: ids }, amount: { $lte: 30 } }).select("clientId period amount paidAt").lean(),
+  ]);
+  const detalle = clientes
+    .map((c) => {
+      const mios = abiertos.filter((i) => String(i.clientId) === String(c._id));
+      if (!mios.length) return null;
+      return {
+        cliente: c.name,
+        id: String(c._id),
+        archivado: Boolean(c.isArchived || !c.isActive),
+        saldo: dinero(mios.reduce((s, i) => s + (i.amount - (i.paidAmount || 0)), 0)),
+        cobrosAbiertos: mios.map((i) => ({ id: String(i._id), periodo: i.period, estado: i.status, monto: dinero(i.amount), pagado: dinero(i.paidAmount), saldo: dinero(i.amount - (i.paidAmount || 0)) })),
+        abonosRaros: pagosChicos.filter((p) => String(p.clientId) === String(c._id)).map((p) => ({ periodo: p.period, monto: dinero(p.amount), fecha: p.paidAt })),
+      };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+
+  const resumen = { clientes: detalle.length, cobros: abiertos.length, saldoTotal: dinero(abiertos.reduce((s, i) => s + (i.amount - (i.paidAmount || 0)), 0)), motivo };
+  const alcance = input.cliente || input.todos_archivados;
+  if (!input.confirmar || !alcance) {
+    return { ...resumen, detalle, siguiente: alcance ? "Si está bien, vuelve a llamar con confirmar=true." : "Para condonar todo: todos_archivados=true y confirmar=true. Para uno: cliente y confirmar=true." };
+  }
+  if (!input.cliente && !detalle.every((c) => c.archivado)) {
+    throw new CustomError("Hay clientes activos con saldo en la lista; con todos_archivados solo se condonan archivados.", 409);
+  }
+  let condonados = 0;
+  for (const inv of abiertos) {
+    await invoiceQueryService.markWaived(String(inv._id), `${motivo} (${quien.payload.name}, MCP)`);
+    condonados++;
+  }
+  return { ...resumen, condonados, detalle, nota: "Cobros en estado 'condonada'; los pagos registrados quedan intactos. Ya no cuentan en por cobrar ni en mora." };
+}
+
+export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente, actorExiste, comprobante, darDeBaja };

@@ -95,6 +95,10 @@ export const mcpBloqueos = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(await mcpService.bloqueos(actorEmail(req)));
 });
 
+export const mcpDarDeBaja = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.darDeBaja(actorEmail(req), req.body || {}));
+});
+
 export const mcpVincular = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(await mcpService.vincular(actorEmail(req), req.body || {}));
 });
