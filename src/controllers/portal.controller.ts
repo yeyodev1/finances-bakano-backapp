@@ -103,7 +103,7 @@ export const mcpBloqueos = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const mcpDarDeBaja = asyncHandler(async (req: Request, res: Response) => {
-  res.status(200).json(await mcpService.darDeBaja(actorEmail(req), req.body || {}));
+  res.status(200).json(await mcpService.darDeBaja(actorEmail(req), req.body || {}, esSuperadminMetrics(req)));
 });
 
 export const mcpVincular = asyncHandler(async (req: Request, res: Response) => {

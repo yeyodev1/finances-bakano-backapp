@@ -677,15 +677,25 @@ async function crearCliente(
  * con motivo para que dejen de inflar "por cobrar" (pedido de Luis, tarea de
  * Metrics 6ae385d1aa35bac083a8948b). No se borra nada: pagos y facturas quedan
  * como historia. Sin cliente ni todos_archivados: lista los archivados con saldo.
- * Solo superadmin.
+ * Solo superadmin (de Finanzas o de Metrics).
  */
-async function darDeBaja(
-  email: string | undefined,
-  input: { cliente?: string; todos_archivados?: boolean; motivo?: string; confirmar?: boolean }
-) {
-  const quien = await actor(email);
-  if (quien.role !== "superadmin") throw new CustomError("Dar de baja saldos es solo de superadmin.", 403);
-  const motivo = String(input.motivo || "").trim() || "Cliente se fue; saldo dado por perdido por Dirección";
+type EntradaBaja = { cliente?: string; todos_archivados?: boolean; motivo?: string; confirmar?: boolean };
+
+/**
+ * Quién da de baja y con qué motivo. Superadmin de Finanzas o de Metrics (pedido de Diego
+ * 2026-11-13 para Génesis: es superadmin en Metrics pero en Finanzas tiene otro rol).
+ * Condonar exige motivo: queda en cada cobro con el nombre de quien lo hizo.
+ */
+export function reglaBaja(role: UserRole, superadminMetrics: boolean, input: EntradaBaja): string {
+  if (role !== "superadmin" && !superadminMetrics) throw new CustomError("Dar de baja saldos es solo de superadmin.", 403);
+  const motivo = String(input.motivo || "").trim();
+  if (input.confirmar && (input.cliente || input.todos_archivados) && !motivo) throw new CustomError("Falta el motivo: por qué se da por perdido el saldo.", 400);
+  return motivo;
+}
+
+async function darDeBaja(email: string | undefined, input: EntradaBaja, superadminMetrics = false) {
+  const quien = await actor(email, superadminMetrics);
+  const motivo = reglaBaja(quien.role, superadminMetrics, input);
 
   const clientes: IClient[] = input.cliente
     ? [await buscarCliente(input.cliente)]
