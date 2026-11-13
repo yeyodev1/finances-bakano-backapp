@@ -19,6 +19,10 @@
       "schedule": "0 13 * * *"
     },
     {
+      "path": "/api/cron/run/facturacion",
+      "schedule": "*/30 * * * *"
+    },
+    {
       "path": "/api/cron/run/monthly",
       "schedule": "5 6 1 * *"
     }

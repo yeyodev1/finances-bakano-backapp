@@ -17,6 +17,7 @@ import { invoiceGenerationService } from "./invoice.generation.service";
 import { paymentService } from "./payment.service";
 import { elegirCobros, saldoDe, validarSelector } from "./payment.allocation";
 import { receiptUploadService } from "./receiptUpload.service";
+import { facturacionExternaService } from "./facturacionExterna.service";
 
 /**
  * Bakano Finanzas desde el MCP del equipo (mcp.bakano.ec).
@@ -169,6 +170,13 @@ async function cliente(email: string | undefined, texto: string) {
       cuotas: (s.installments || []).map((i: any) => ({ n: i.index + 1, monto: dinero(i.amount), vence: i.dueDate, estado: i.status })),
     })),
   };
+}
+
+/** Facturado vs cobrado del sistema de facturación (solo lectura, lo refresca el cron). */
+async function facturacion(email: string | undefined, periodo?: string) {
+  await actor(email);
+  if (periodo && !isValidPeriod(periodo)) throw new CustomError("El período va como AAAA-MM.", 400);
+  return facturacionExternaService.resumen(periodo);
 }
 
 async function resumen(email: string | undefined, periodo?: string) {
@@ -718,4 +726,4 @@ async function darDeBaja(
   return { ...resumen, condonados, detalle, nota: "Cobros en estado 'condonada'; los pagos registrados quedan intactos. Ya no cuentan en por cobrar ni en mora." };
 }
 
-export const mcpService = { clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente, actorExiste, comprobante, darDeBaja };
+export const mcpService = { facturacion, clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente, actorExiste, comprobante, darDeBaja };
