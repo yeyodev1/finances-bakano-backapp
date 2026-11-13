@@ -311,7 +311,22 @@ async function health(): Promise<{ configured: boolean; reachable: boolean; mess
   }
 }
 
+/**
+ * Primer pago o primer acuerdo de pago del cliente: métricas arranca a los de
+ * página web y automatizaciones (crea la tarea de arranque una sola vez; a los
+ * demás no les hace nada). Nunca tumba el pago ni el plazo.
+ */
+async function avisarArranque(id: string, motivo: "pago" | "plazo", detalle: string): Promise<void> {
+  if (!isConfigured()) return;
+  try {
+    await getClient().post(`${BASE_PATH}/${id}/arranque`, { motivo, detalle });
+  } catch (error) {
+    await logError("metrics.workspace.arranque", id, error);
+  }
+}
+
 export const metricsService = {
+  avisarArranque,
   createWorkspace,
   isConfigured,
   listWorkspaces,

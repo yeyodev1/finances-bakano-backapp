@@ -1,11 +1,12 @@
 import { Types } from "mongoose";
-import { AuditLog, Client, IInvoice, Invoice } from "../models";
+import { AuditLog, Client, IInvoice, Invoice, Payment } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { JwtPayload } from "../types/AuthRequest";
 import { InvoiceStatus } from "../types/finance.types";
 import { isValidPeriod, startOfDay, toPeriod } from "../utils/date.util";
 import { emailService } from "./email.service";
 import { resolveDueDate } from "./invoice.generation.service";
+import { metricsService } from "./metrics.service";
 
 const CLOSED_STATUSES: InvoiceStatus[] = ["paid", "cancelled", "waived"];
 
@@ -117,6 +118,15 @@ async function deferInvoice(invoiceId: string, input: DeferInvoiceInput, user?: 
     });
   } catch (error) {
     console.error("[invoice] Falló el email de acuerdo de pago:", error);
+  }
+
+  // Acuerdo de pago antes del primer pago: métricas arranca a los de web y automatizaciones.
+  if (client?.workspaceId && !(await Payment.exists({ clientId: client._id }))) {
+    await metricsService.avisarArranque(
+      client.workspaceId,
+      "plazo",
+      `vence el ${newDueDate.toISOString().slice(0, 10)}${input.reason ? `: ${input.reason}` : ""}`.slice(0, 300)
+    );
   }
 
   return invoice;
