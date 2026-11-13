@@ -2,7 +2,7 @@ import { AuditLog, Client, Invoice, Payment } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { JwtPayload } from "../types/AuthRequest";
 import { nameSimilarity } from "../utils/similarity.util";
-import { crmConsumptionService } from "./crmConsumption.service";
+import { crmConsumptionService, isCrmCharge } from "./crmConsumption.service";
 import { paymentService } from "./payment.service";
 import { stripeService, StripeChargeSummary } from "./stripe.service";
 
@@ -168,7 +168,8 @@ async function importCharges(clientId: string, user?: JwtPayload) {
       continue;
     }
 
-    const invoice = await findInvoiceForCharge(client._id, charge);
+    // Cargos chicos son recargas del CRM: no se buscan contra cobros (cae directo a consumo CRM).
+    const invoice = isCrmCharge(charge.amount) ? null : await findInvoiceForCharge(client._id, charge);
     if (!invoice) {
       // ¿La mensualidad ya se registró a mano? Entonces este cargo ES ese pago:
       // se adopta (charge id + recibo) en vez de duplicarlo en consumo CRM.

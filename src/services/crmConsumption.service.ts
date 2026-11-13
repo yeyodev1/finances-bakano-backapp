@@ -6,6 +6,11 @@ import { JwtPayload } from "../types/AuthRequest";
 import { startOfPeriod, endOfPeriod, isValidPeriod } from "../utils/date.util";
 import { paymentService } from "./payment.service";
 
+// shortcut: se clasifica por monto (recargas del CRM son de $1–$25); si aparece una recarga
+// de $50 o más, o una venta menor a eso, cambiar a detectar por la descripción del cargo.
+export const CRM_MAX_AMOUNT = 50;
+export const isCrmCharge = (amount: number) => amount < CRM_MAX_AMOUNT;
+
 export interface CrmChargeInput {
   clientId: unknown;
   clientName: string;
