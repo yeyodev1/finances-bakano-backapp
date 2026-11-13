@@ -8,6 +8,7 @@ import { startOfDay } from "../utils/date.util";
 import { cloudinaryService } from "./cloudinary.service";
 import { emailService } from "./email.service";
 import { metricsService } from "./metrics.service";
+import { repartir } from "./payment.allocation";
 
 const RECEIPT_FOLDER = "bakano-finanzas/comprobantes";
 const OPEN_STATUSES = ["pending", "partial", "overdue"];
@@ -310,7 +311,7 @@ async function settle(
   const client = await Client.findById(input.clientId);
   if (!client) throw new CustomError("Cliente no encontrado", 404);
 
-  let remaining = Number(input.amount);
+  const remaining = Number(input.amount);
   if (!Number.isFinite(remaining) || remaining <= 0) {
     throw new CustomError("El monto del pago debe ser mayor a cero", 400);
   }
@@ -339,12 +340,7 @@ async function settle(
 
   const applied: Array<{ invoiceId: string; period: string; amount: number; paymentId: string }> = [];
 
-  for (const invoice of open) {
-    if (remaining <= 0.009) break;
-    const balance = Math.max(invoice.amount - (invoice.paidAmount || 0), 0);
-    if (balance <= 0) continue;
-
-    const portion = Number(Math.min(balance, remaining).toFixed(2));
+  for (const { cobro: invoice, parte: portion } of repartir(open, remaining)) {
     const registrado = await register(
       {
         invoiceId: invoice._id.toString(),
@@ -363,7 +359,6 @@ async function settle(
       amount: portion,
       paymentId: registrado.payment._id.toString(),
     });
-    remaining = Number((remaining - portion).toFixed(2));
   }
 
   return {

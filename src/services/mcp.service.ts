@@ -1,5 +1,5 @@
 import { Types } from "mongoose";
-import { Client, IClient, Invoice, Payment, Sale, User } from "../models";
+import { AuditLog, Client, IClient, Invoice, Payment, Sale, User } from "../models";
 import { CustomError } from "../errors/customError.error";
 import { JwtPayload, UserRole } from "../types/AuthRequest";
 import { PAYMENT_METHODS, PaymentMethod } from "../types/finance.types";
@@ -15,6 +15,7 @@ import { lifetimeRevenueOf } from "./client.lifecycle.service";
 import { dashboardService } from "./dashboard.service";
 import { invoiceGenerationService } from "./invoice.generation.service";
 import { paymentService } from "./payment.service";
+import { elegirCobros, saldoDe, validarSelector } from "./payment.allocation";
 import { receiptUploadService } from "./receiptUpload.service";
 
 /**
@@ -176,6 +177,8 @@ async function resumen(email: string | undefined, periodo?: string) {
  *  - mensual: se genera el cobro del mes del pago (lo que haría el job del día 1);
  *  - pago único / a convenir: se crea el cobro de ese mes por el monto pagado.
  * Así el pago siempre queda en el historial del cliente ("Total cobrado").
+ * Con `mes` (AAAA-MM) o `cobro_id` va SOLO a ese cobro; si está anulado,
+ * superadmin lo reactiva con `motivo` (caso Eventos la Colonia, oct 2026).
  */
 async function registrarPago(
   email: string | undefined,
@@ -186,6 +189,9 @@ async function registrarPago(
     metodo?: PaymentMethod;
     referencia?: string;
     notas?: string;
+    mes?: string;
+    cobro_id?: string;
+    motivo?: string;
     confirmar?: boolean;
   },
   baseUrl?: string
@@ -217,10 +223,29 @@ async function registrarPago(
     }
   }
 
-  let abiertos = await Invoice.find({ clientId: c._id, status: { $in: OPEN } }).sort({ dueDate: 1, splitIndex: 1 }).lean();
+  const mes = input.mes?.trim() || undefined;
+  const cobroId = input.cobro_id?.trim() || undefined;
+  validarSelector(mes, cobroId);
+  if (cobroId && !Types.ObjectId.isValid(cobroId)) throw new CustomError(`El cobro_id ${cobroId} no es un id válido.`, 400);
+  const motivo = input.motivo?.trim();
+  const eleccion =
+    mes || cobroId
+      ? elegirCobros(
+          await Invoice.find({ clientId: c._id, ...(cobroId ? { _id: cobroId } : { period: mes }) }).sort({ dueDate: 1, splitIndex: 1 }).lean(),
+          { cliente: c.name, mes, cobroId, motivo, esSuperadmin: quien.role === "superadmin" }
+        )
+      : null;
+
+  let abiertos = eleccion
+    ? eleccion.objetivos
+    : await Invoice.find({ clientId: c._id, status: { $in: OPEN } }).sort({ dueDate: 1, splitIndex: 1 }).lean();
   const periodo = toPeriod(fecha);
   let plan: string;
-  if (abiertos.length) {
+  if (eleccion) {
+    plan =
+      `Se aplica SOLO a ${abiertos.map((i) => `${i.period}${i.splitLabel ? ` ${i.splitLabel}` : ""} ($${dinero(saldoDe(i))} pendiente)`).join(", ")}, no al cobro abierto más viejo.` +
+      (eleccion.reactivar.length ? ` El cobro está ANULADO: se reactiva con motivo "${motivo}" y queda en el historial.` : "");
+  } else if (abiertos.length) {
     plan = `Se reparte entre ${abiertos.length} cobro(s) abierto(s): ${abiertos.map((i) => `${i.period} ($${dinero(i.amount - (i.paidAmount || 0))} pendiente)`).join(", ")}.`;
   } else if (c.billingType === "monthly") {
     plan = `No tiene cobros abiertos: se genera el cobro de ${periodo} (mensual de $${dinero(c.amount)}) y se registra ahí.`;
@@ -228,9 +253,10 @@ async function registrarPago(
     plan = `No tiene cobros abiertos y es ${c.billingType === "special" ? "pago único / a convenir" : c.billingType}: se crea el cobro de ${periodo} por $${monto} y se registra ahí.`;
   }
 
-  const pendienteHoy = abiertos.reduce((a, i) => a + Math.max(i.amount - (i.paidAmount || 0), 0), 0);
+  const pendienteHoy = abiertos.reduce((a, i) => a + saldoDe(i), 0);
   if (abiertos.length && monto > pendienteHoy + 0.009) {
-    throw new CustomError(`El monto ($${monto}) supera lo pendiente de ${c.name} ($${dinero(pendienteHoy)}). Revisa el monto o los cobros.`, 400);
+    const deQue = eleccion ? `el cobro de ${abiertos[0].period}` : c.name;
+    throw new CustomError(`El monto ($${monto}) supera lo pendiente de ${deQue} ($${dinero(pendienteHoy)}). Revisa el monto o los cobros.`, 400);
   }
 
   const resumenPago = {
@@ -239,6 +265,7 @@ async function registrarPago(
     fecha: fecha.toISOString().slice(0, 10),
     metodo: input.metodo || c.paymentMethod,
     referencia: referencia ?? null,
+    ...(eleccion ? { cobro: mes ?? cobroId } : {}),
     plan,
   };
   if (!input.confirmar) {
@@ -277,6 +304,22 @@ async function registrarPago(
     }
   }
 
+  // Reactivar el anulado ANTES de pagar: settle solo ve cobros abiertos.
+  for (const inv of eleccion?.reactivar ?? []) {
+    const status = (inv.paidAmount || 0) > 0 ? "partial" : inv.dueDate < startOfDay(new Date()) ? "overdue" : "pending";
+    const nota = `Reactivada por ${quien.payload.name} para registrar un pago: ${motivo}`;
+    await Invoice.updateOne({ _id: inv._id, status: "cancelled" }, { status, notes: [inv.notes, nota].filter(Boolean).join(" | ") });
+    await AuditLog.create({
+      action: "invoice.reactivate",
+      entity: "Invoice",
+      entityId: String(inv._id),
+      userId: quien.payload._id,
+      userName: quien.payload.name,
+      level: "warn",
+      meta: { clientId: String(c._id), period: inv.period, motivo, status, desde: "mcp" },
+    });
+  }
+
   const r = await paymentService.settle(
     {
       clientId: String(c._id),
@@ -285,6 +328,7 @@ async function registrarPago(
       method: input.metodo,
       reference: referencia,
       notes: [input.notas?.trim(), "Registrado desde el MCP"].filter(Boolean).join(" · "),
+      ...(eleccion ? { invoiceIds: abiertos.map((i) => String(i._id)) } : {}),
     },
     quien.payload
   );
