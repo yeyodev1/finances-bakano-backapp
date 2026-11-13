@@ -1467,3 +1467,19 @@ curl -X DELETE "http://localhost:8101/api/crm-consumption/<id>" \
 
 La respuesta de `POST /api/stripe/import/charges` ahora devuelve `crmSaved` en lugar de
 `unmatched`: los cargos sin factura quedan registrados como consumo, no requieren acción manual.
+
+
+---
+
+## Sistema de facturación externo (solo lectura)
+
+Lee facturas y cobros del sistema de facturación por su GraphQL interno (`FACTURACION_URL`,
+por defecto `https://crm.soporte.press`) con `FACTURACION_EMAIL` / `FACTURACION_PASSWORD`.
+Solo consultas: nunca emite, anula ni edita. Se guarda en `facturacionexterna`
+(`tipo: factura|cobro`, único por `externalId`) y se empata con `Client` por nombre o razón social.
+
+- Cron `GET /api/cron/run/facturacion` (cada 30 min): mes actual y anterior. Idempotente.
+- `GET /api/portal/mcp/facturacion?periodo=AAAA-MM` (x-metrics-key + x-actor-email): facturado,
+  cobrado, cobros sin factura, facturas sin cobro y nombres sin cliente en Finanzas.
+- Si el login exige captcha, el cron falla con ese mensaje: hace falta un usuario de integración sin captcha.
+- Self-check: `pnpm probar:facturacion`.

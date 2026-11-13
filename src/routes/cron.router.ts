@@ -5,6 +5,7 @@ import { AuthRequest, JwtPayload } from "../types/AuthRequest";
 import { asyncHandler } from "../utils/asyncHandler.util";
 import { param, toHandler } from "../utils/expressHandler.util";
 import { schedulerService } from "../services/scheduler.service";
+import { facturacionExternaService } from "../services/facturacionExterna.service";
 import { invoiceService } from "../services/invoice.service";
 import { isValidPeriod } from "../utils/date.util";
 import { CustomError } from "../errors/customError.error";
@@ -79,6 +80,14 @@ cronRouter.all(
       message: `Facturas generadas para el período ${period}`,
       result: await invoiceService.generateForPeriod(period),
     });
+  })
+);
+
+// Sistema de facturación (solo lectura): mes actual y anterior, cada 30 min.
+cronRouter.all(
+  "/run/facturacion",
+  asyncHandler(async (_req: AuthRequest, res: Response) => {
+    res.json(await facturacionExternaService.sincronizar());
   })
 );
 

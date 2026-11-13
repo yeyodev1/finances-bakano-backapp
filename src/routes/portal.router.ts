@@ -19,6 +19,7 @@ portalRouter.get("/estado-pagos", portalController.estadoPagos);
 portalRouter.get("/mcp/clientes", portalController.mcpClientes);
 portalRouter.get("/mcp/cliente", portalController.mcpCliente);
 portalRouter.get("/mcp/resumen", portalController.mcpResumen);
+portalRouter.get("/mcp/facturacion", portalController.mcpFacturacion);
 portalRouter.post("/mcp/pagos", portalController.mcpRegistrarPago);
 portalRouter.get("/mcp/bloqueos", portalController.mcpBloqueos);
 portalRouter.post("/mcp/vincular", portalController.mcpVincular);

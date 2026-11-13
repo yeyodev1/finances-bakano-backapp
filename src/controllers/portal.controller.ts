@@ -74,6 +74,11 @@ export const mcpCliente = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(await mcpService.cliente(actorEmail(req), String(req.query.cliente || "")));
 });
 
+export const mcpFacturacion = asyncHandler(async (req: Request, res: Response) => {
+  const periodo = typeof req.query.periodo === "string" ? req.query.periodo : undefined;
+  res.status(200).json(await mcpService.facturacion(actorEmail(req), periodo));
+});
+
 export const mcpResumen = asyncHandler(async (req: Request, res: Response) => {
   const periodo = typeof req.query.periodo === "string" ? req.query.periodo : undefined;
   res.status(200).json(await mcpService.resumen(actorEmail(req), periodo));
