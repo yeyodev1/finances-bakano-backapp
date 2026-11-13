@@ -57,6 +57,8 @@ export const submit = asyncHandler(async (req: Request, res: Response) => {
 
 /** MCP del equipo: la persona va en x-actor-email y se valida con su usuario de Finanzas. */
 const actorEmail = (req: Request) => String(req.headers["x-actor-email"] || "");
+/** Metrics avisa que la persona es superadmin allá (la ruta ya exige METRICS_PROXY_KEY). */
+const esSuperadminMetrics = (req: Request) => req.headers["x-actor-superadmin"] === "1";
 
 /** URL pública de ESTA API (detrás de Vercel), para armar los enlaces de subida de comprobantes. */
 function baseUrlDe(req: Request): string {
@@ -80,7 +82,7 @@ export const mcpResumen = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const mcpRegistrarPago = asyncHandler(async (req: Request, res: Response) => {
-  res.status(200).json(await mcpService.registrarPago(actorEmail(req), req.body || {}, baseUrlDe(req)));
+  res.status(200).json(await mcpService.registrarPago(actorEmail(req), req.body || {}, baseUrlDe(req), esSuperadminMetrics(req)));
 });
 
 export const mcpActor = asyncHandler(async (req: Request, res: Response) => {
@@ -88,7 +90,7 @@ export const mcpActor = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const mcpComprobante = asyncHandler(async (req: Request, res: Response) => {
-  res.status(200).json(await mcpService.comprobante(actorEmail(req), req.body || {}, baseUrlDe(req)));
+  res.status(200).json(await mcpService.comprobante(actorEmail(req), req.body || {}, baseUrlDe(req), esSuperadminMetrics(req)));
 });
 
 export const mcpBloqueos = asyncHandler(async (req: Request, res: Response) => {
@@ -112,5 +114,5 @@ export const mcpPlazo = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const mcpCrearCliente = asyncHandler(async (req: Request, res: Response) => {
-  res.status(200).json(await mcpService.crearCliente(actorEmail(req), req.body || {}));
+  res.status(200).json(await mcpService.crearCliente(actorEmail(req), req.body || {}, esSuperadminMetrics(req)));
 });

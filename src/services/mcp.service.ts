@@ -35,10 +35,18 @@ export interface ActorMcp {
   role: UserRole;
 }
 
-async function actor(email: string | undefined): Promise<ActorMcp> {
+async function actor(email: string | undefined, superadminMetrics = false): Promise<ActorMcp> {
   const correo = String(email || "").trim().toLowerCase();
   if (!correo) throw new CustomError("Falta la persona que hace la consulta.", 401);
   const user = await User.findOne({ email: correo, isActive: true }).select("_id name email role").lean();
+  if (!user && superadminMetrics) {
+    // Pedido de Diego (2026-11-13): cualquier superadmin de Metrics registra pagos. Metrics ya validó
+    // el rol y la llamada viene con METRICS_PROXY_KEY; el pago queda a su nombre (sin id de Finanzas).
+    return {
+      role: "superadmin" as UserRole,
+      payload: { _id: undefined as unknown as string, email: correo, name: `${correo} (superadmin Metrics)`, role: "superadmin" as UserRole },
+    };
+  }
   if (!user) {
     throw new CustomError(
       `${correo} no tiene usuario activo en Bakano Finanzas (finances.bakano.ec). Pídele a Diego que te cree uno.`,
@@ -194,9 +202,10 @@ async function registrarPago(
     motivo?: string;
     confirmar?: boolean;
   },
-  baseUrl?: string
+  baseUrl?: string,
+  superadminMetrics = false
 ) {
-  const quien = await actor(email);
+  const quien = await actor(email, superadminMetrics);
   if (!ESCRIBEN.includes(quien.role)) {
     throw new CustomError(`Tu usuario de Finanzas es "${quien.role}": solo puede consultar, no registrar pagos.`, 403);
   }
@@ -250,7 +259,11 @@ async function registrarPago(
   } else if (c.billingType === "monthly") {
     plan = `No tiene cobros abiertos: se genera el cobro de ${periodo} (mensual de $${dinero(c.amount)}) y se registra ahí.`;
   } else {
-    plan = `No tiene cobros abiertos y es ${c.billingType === "special" ? "pago único / a convenir" : c.billingType}: se crea el cobro de ${periodo} por $${monto} y se registra ahí.`;
+    const total = Math.max(dinero(c.amount), monto);
+    plan =
+      total > monto
+        ? `No tiene cobros abiertos: se crea el cobro de ${periodo} por $${total} (lo acordado) y se registra un ABONO de $${monto}. Quedan $${dinero(total - monto)} pendientes.`
+        : `No tiene cobros abiertos y es ${c.billingType === "special" ? "pago único / a convenir" : c.billingType}: se crea el cobro de ${periodo} por $${monto} y se registra ahí.`;
   }
 
   const pendienteHoy = abiertos.reduce((a, i) => a + saldoDe(i), 0);
@@ -288,7 +301,8 @@ async function registrarPago(
         clientName: c.name,
         period: periodo,
         splitIndex: 0,
-        amount: monto,
+        // Lo acordado, no lo pagado: un abono deja el cobro "partial" con el saldo a la vista.
+        amount: Math.max(dinero(c.amount), monto),
         currency: c.currency || "USD",
         issueDate: fecha,
         dueDate: startOfDay(fecha),
@@ -369,9 +383,10 @@ async function actorExiste(email: string | undefined) {
 async function comprobante(
   email: string | undefined,
   input: { cliente?: string; pago_id?: string; referencia?: string },
-  baseUrl: string
+  baseUrl: string,
+  superadminMetrics = false
 ) {
-  const quien = await escritor(email);
+  const quien = await escritor(email, superadminMetrics);
 
   let pagos;
   const referencia = input.referencia?.trim();
@@ -413,8 +428,8 @@ async function comprobante(
 }
 
 /** Escribir en Finanzas: mismo permiso que en la plataforma. */
-async function escritor(email: string | undefined): Promise<ActorMcp> {
-  const quien = await actor(email);
+async function escritor(email: string | undefined, superadminMetrics = false): Promise<ActorMcp> {
+  const quien = await actor(email, superadminMetrics);
   if (!ESCRIBEN.includes(quien.role)) {
     throw new CustomError(`Tu usuario de Finanzas es "${quien.role}": solo puede consultar.`, 403);
   }
@@ -596,9 +611,10 @@ async function crearCliente(
     workspaceId?: string;
     workspaceName?: string;
     confirmar?: boolean;
-  }
+  },
+  superadminMetrics = false
 ) {
-  const quien = await escritor(email);
+  const quien = await escritor(email, superadminMetrics);
   const nombre = String(input.nombre || "").trim();
   if (nombre.length < 2) throw new CustomError("Falta el nombre del cliente.", 400);
   const parecidos = await Client.find({ name: { $regex: nombre.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } }).select("name isArchived").limit(5).lean();
