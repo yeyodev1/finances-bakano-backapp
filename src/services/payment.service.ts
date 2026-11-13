@@ -170,6 +170,16 @@ async function register(input: RegisterPaymentInput, user?: JwtPayload) {
     await maybeReactivateWorkspace(client._id, invoice._id);
   }
 
+  // Primer pago del cliente: métricas arranca a los de web y automatizaciones.
+  // Los backfills (skipEmail) son historia, no arrancan nada.
+  if (!input.skipEmail && client.workspaceId && (await Payment.countDocuments({ clientId: client._id })) === 1) {
+    await metricsService.avisarArranque(
+      client.workspaceId,
+      "pago",
+      `$${amount} el ${paidAt.toISOString().slice(0, 10)}`
+    );
+  }
+
   if (!input.skipEmail) {
     try {
       await emailService.sendPaymentRegistered({ invoice, payment, client });
