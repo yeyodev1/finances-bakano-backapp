@@ -26,6 +26,8 @@ portalRouter.post("/mcp/vincular", portalController.mcpVincular);
 portalRouter.post("/mcp/baja", portalController.mcpDarDeBaja);
 portalRouter.post("/mcp/acceso", portalController.mcpAcceso);
 portalRouter.post("/mcp/plazo", portalController.mcpPlazo);
+portalRouter.post("/mcp/montos", portalController.mcpMontos);
+portalRouter.post("/mcp/anular-pago", portalController.mcpAnularPago);
 portalRouter.post("/mcp/clientes", portalController.mcpCrearCliente);
 portalRouter.get("/mcp/actor", portalController.mcpActor);
 portalRouter.post("/mcp/comprobantes", portalController.mcpComprobante);

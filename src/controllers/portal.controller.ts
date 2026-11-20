@@ -121,3 +121,11 @@ export const mcpPlazo = asyncHandler(async (req: Request, res: Response) => {
 export const mcpCrearCliente = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json(await mcpService.crearCliente(actorEmail(req), req.body || {}, esSuperadminMetrics(req)));
 });
+
+export const mcpMontos = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.montos(actorEmail(req), req.body || {}, esSuperadminMetrics(req)));
+});
+
+export const mcpAnularPago = asyncHandler(async (req: Request, res: Response) => {
+  res.status(200).json(await mcpService.anularPago(actorEmail(req), req.body || {}, esSuperadminMetrics(req)));
+});

@@ -155,6 +155,7 @@ async function cliente(email: string | undefined, texto: string) {
       vence: i.dueDate,
     })),
     pagos: pagos.map((p) => ({
+      id: String(p._id),
       monto: dinero(p.amount),
       fecha: p.paidAt,
       metodo: p.method,
@@ -736,4 +737,158 @@ async function darDeBaja(email: string | undefined, input: EntradaBaja, superadm
   return { ...resumen, condonados, detalle, nota: "Cobros en estado 'condonada'; los pagos registrados quedan intactos. Ya no cuentan en por cobrar ni en mora." };
 }
 
-export const mcpService = { facturacion, clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente, actorExiste, comprobante, darDeBaja };
+/** Corregir montos y anular pagos: solo superadmin (de Finanzas o de Metrics) y siempre con motivo. */
+export function reglaSuperadmin(role: UserRole, superadminMetrics: boolean, motivoIn: string | undefined, que: string): string {
+  if (role !== "superadmin" && !superadminMetrics) throw new CustomError(`${que} es solo de superadmin.`, 403);
+  const motivo = String(motivoIn || "").trim();
+  if (motivo.length < 3) throw new CustomError("Falta el motivo (queda en las notas y en la bitácora con tu nombre).", 400);
+  return motivo;
+}
+
+/** Un cobro nunca queda por debajo de lo ya pagado; uno pagado no se toca (igual que la plataforma). */
+export function reglaMonto(inv: { period: string; amount: number; paidAmount?: number; status: string }, monto: number): void {
+  if (!(monto > 0)) throw new CustomError(`El monto del cobro ${inv.period} tiene que ser mayor a cero.`, 400);
+  const pagado = dinero(inv.paidAmount);
+  if (monto < pagado) {
+    throw new CustomError(
+      `El cobro ${inv.period} ya tiene $${pagado} pagados: no puede quedar en $${monto}. Si un pago no fue real, anúlalo primero (finanzas_anular_pago).`,
+      409
+    );
+  }
+  if (inv.status === "paid") throw new CustomError(`El cobro ${inv.period} está pagado: no se le cambia el monto.`, 409);
+}
+
+/**
+ * Corrige la mensualidad del cliente y/o el monto de cobros puntuales (casos EL DON consentido
+ * y Gearcore, 2026-11-20). Usa lo mismo que la plataforma: editar cliente (regenera el cobro
+ * abierto del mes en curso) y editar cobro (recalcula el estado). El motivo queda en las notas.
+ */
+async function montos(
+  email: string | undefined,
+  input: { cliente: string; mensualidad?: number | null; cobros?: { cobro_id: string; monto: number }[]; motivo?: string; confirmar?: boolean },
+  superadminMetrics = false
+) {
+  const quien = await actor(email, superadminMetrics);
+  const motivo = reglaSuperadmin(quien.role, superadminMetrics, input.motivo, "Corregir montos");
+  const c = await buscarCliente(input.cliente);
+  const lista = Array.isArray(input.cobros) ? input.cobros : [];
+  const mensualidad = input.mensualidad == null ? null : dinero(input.mensualidad);
+  if (mensualidad == null && !lista.length) throw new CustomError("Dime la mensualidad nueva o los cobros a corregir.", 400);
+  if (mensualidad != null && !(mensualidad > 0)) throw new CustomError("La mensualidad tiene que ser mayor a cero.", 400);
+  const ids = lista.map((x) => String(x.cobro_id || "").trim());
+  ids.forEach((id) => {
+    if (!Types.ObjectId.isValid(id)) throw new CustomError(`El cobro_id ${id} no es un id válido.`, 400);
+  });
+  if (new Set(ids).size !== ids.length) throw new CustomError("Hay un cobro repetido en la lista.", 400);
+  const invs = await Invoice.find({ _id: { $in: ids }, clientId: c._id }).lean();
+  const cambios = lista.map((x, k) => {
+    const inv = invs.find((i) => String(i._id) === ids[k]);
+    if (!inv) throw new CustomError(`El cobro ${ids[k]} no es de ${c.name}.`, 404);
+    const monto = dinero(x.monto);
+    reglaMonto(inv, monto);
+    return { inv, monto };
+  });
+
+  const cambiaMensualidad = mensualidad != null && mensualidad !== dinero(c.amount);
+  const mes = toPeriod();
+  // Editar la mensualidad regenera los cobros del mes en curso sin pagos (lo hace clientService.update).
+  const delMes = cambiaMensualidad
+    ? await Invoice.find({ clientId: c._id, period: mes, paidAmount: { $lte: 0 }, isAdvance: { $ne: true }, status: { $in: [...OPEN, "cancelled"] } }).lean()
+    : [];
+  const resumen = {
+    cliente: c.name,
+    mensualidad: cambiaMensualidad ? `$${dinero(c.amount)} → $${mensualidad}` : `sin cambio ($${dinero(c.amount)})`,
+    cobros: cambios.map(({ inv, monto }) => ({
+      id: String(inv._id),
+      periodo: inv.period,
+      estado: inv.status,
+      pagado: dinero(inv.paidAmount),
+      monto: `$${dinero(inv.amount)} → $${monto}`,
+    })),
+    motivo,
+    ...(delMes.length
+      ? {
+          ojo: `Al cambiar la mensualidad, Finanzas ajusta también el cobro de ${mes} (${delMes.map((i) => `${i.status} $${dinero(i.amount)}`).join(", ")}) a la mensualidad nueva y recalcula su vencimiento por el día de cobro (una prórroga se conserva). Un cobro anulado de ${mes} con otro monto se reactiva, igual que en la plataforma.`,
+        }
+      : {}),
+  };
+  if (!input.confirmar) return { paraConfirmar: resumen, siguiente: "Muéstraselo a la persona. Si confirma, vuelve a llamar con confirmar=true." };
+
+  const hoy = new Date().toISOString().slice(0, 10);
+  if (cambiaMensualidad) {
+    const nota = `Mensualidad $${dinero(c.amount)} → $${mensualidad} por ${quien.payload.name} (MCP, ${hoy}): ${motivo}`;
+    await clientService.update(String(c._id), { amount: mensualidad, notes: [c.notes, nota].filter(Boolean).join(" | ") } as Partial<IClient>);
+    // La regeneración recalcula el vencimiento: no pisar una prórroga ya acordada.
+    for (const i of delMes) if (i.deferrals?.length) await Invoice.updateOne({ _id: i._id }, { dueDate: i.dueDate });
+  }
+  for (const { inv, monto } of cambios) {
+    const fresco = await Invoice.findById(inv._id).select("notes").lean();
+    const nota = `Monto $${dinero(inv.amount)} → $${monto} por ${quien.payload.name} (MCP, ${hoy}): ${motivo}`;
+    await invoiceQueryService.update(String(inv._id), { amount: monto, notes: [fresco?.notes, nota].filter(Boolean).join(" | ") });
+  }
+  await AuditLog.create({
+    action: "client.amounts",
+    entity: "Client",
+    entityId: String(c._id),
+    userId: quien.payload._id,
+    userName: quien.payload.name,
+    level: "warn",
+    meta: {
+      motivo,
+      desde: "mcp",
+      ...(cambiaMensualidad ? { mensualidad: { de: dinero(c.amount), a: mensualidad } } : {}),
+      cobros: cambios.map(({ inv, monto }) => ({ id: String(inv._id), period: inv.period, de: dinero(inv.amount), a: monto })),
+    },
+  });
+  const ahora = await Invoice.find({ _id: { $in: [...ids, ...delMes.map((i) => i._id)] } }).sort({ dueDate: 1 }).lean();
+  return {
+    listo: true,
+    ...resumen,
+    cobrosAhora: ahora.map((i) => ({ id: String(i._id), periodo: i.period, monto: dinero(i.amount), pagado: dinero(i.paidAmount), estado: i.status, vence: i.dueDate })),
+  };
+}
+
+/**
+ * Anula un pago que no fue real: lo borra igual que "Eliminar" de la plataforma (recalcula el
+ * cobro y deja payment.remove en la bitácora) y deja el motivo en la bitácora y en el cobro.
+ */
+async function anularPago(email: string | undefined, input: { pago_id: string; motivo?: string; confirmar?: boolean }, superadminMetrics = false) {
+  const quien = await actor(email, superadminMetrics);
+  const motivo = reglaSuperadmin(quien.role, superadminMetrics, input.motivo, "Anular pagos");
+  const id = String(input.pago_id || "").trim();
+  if (!Types.ObjectId.isValid(id)) throw new CustomError("pago_id no es un id válido (míralo en finanzas_cliente).", 400);
+  const pago = await Payment.findById(id).lean();
+  if (!pago) throw new CustomError("No encontré ese pago en Finanzas.", 404);
+  const inv = pago.invoiceId ? await Invoice.findById(pago.invoiceId).lean() : null;
+  const fecha = pago.paidAt.toISOString().slice(0, 10);
+  const resumen = {
+    pago: {
+      id,
+      cliente: pago.clientName,
+      monto: dinero(pago.amount),
+      fecha,
+      metodo: pago.method,
+      referencia: pago.reference ?? null,
+      registradoPor: pago.registeredByName ?? null,
+      tieneComprobante: Boolean(pago.receiptUrl),
+    },
+    cobro: inv
+      ? { id: String(inv._id), periodo: inv.period, monto: dinero(inv.amount), pagadoHoy: dinero(inv.paidAmount), pagadoDespues: dinero(Math.max((inv.paidAmount || 0) - pago.amount, 0)) }
+      : null,
+    motivo,
+    nota: "El pago se borra (como Eliminar en finances.bakano.ec, también su comprobante) y el cobro se recalcula. Queda en la bitácora con el motivo.",
+  };
+  if (!input.confirmar) return { paraConfirmar: resumen, siguiente: "Muéstraselo a la persona. Si confirma, vuelve a llamar con confirmar=true." };
+
+  await paymentService.remove(id, quien.payload, motivo);
+  let cobroAhora = null;
+  if (inv) {
+    const fresco = await Invoice.findById(inv._id).select("notes status paidAmount").lean();
+    const nota = `Pago de $${dinero(pago.amount)} del ${fecha} anulado por ${quien.payload.name} (MCP): ${motivo}`;
+    await Invoice.updateOne({ _id: inv._id }, { notes: [fresco?.notes, nota].filter(Boolean).join(" | ") });
+    cobroAhora = { estado: fresco?.status, pagado: dinero(fresco?.paidAmount) };
+  }
+  return { listo: true, ...resumen, cobroAhora, totalCobradoHistorico: await lifetimeRevenueOf(pago.clientId) };
+}
+
+export const mcpService = { facturacion, clientes, cliente, resumen, registrarPago, bloqueos, vincular, acceso, plazo, crearCliente, actorExiste, comprobante, darDeBaja, montos, anularPago };

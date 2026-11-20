@@ -15,6 +15,7 @@
     "probar:pago-a-mes": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/probarPagoAMes.script.ts",
     "probar:facturacion": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/probarFacturacionExterna.script.ts",
     "probar:baja": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/probarBaja.script.ts",
+    "probar:montos": "ts-node-dev --transpile-only --no-notify --respawn=false src/scripts/probarMontos.script.ts",
     "format": "prettier --write 'src/**/*.{js,jsx,ts,tsx,json,css,scss,md}'"
   },
   "dependencies": {

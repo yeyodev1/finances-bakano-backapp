@@ -245,7 +245,7 @@ async function getById(id: string) {
   return payment;
 }
 
-async function remove(id: string, user?: JwtPayload) {
+async function remove(id: string, user?: JwtPayload, motivo?: string) {
   const payment = await Payment.findById(id);
   if (!payment) throw new CustomError("Pago no encontrado", 404);
 
@@ -289,6 +289,7 @@ async function remove(id: string, user?: JwtPayload) {
       clientId: payment.clientId?.toString(),
       amount: payment.amount,
       period: payment.period,
+      ...(motivo ? { motivo } : {}),
     },
   });
 
